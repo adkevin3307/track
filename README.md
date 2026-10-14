@@ -24,7 +24,19 @@
 
 ## Installation & Building
 
-### Build the Executable
+### Quick Build Script
+You can use the provided build script to compile and optionally install `track` to `~/.local/bin`:
+
+```bash
+./build.sh
+```
+
+To automatically copy without prompting:
+```bash
+./build.sh -y
+```
+
+### Manual Cargo Build
 To compile an optimized, standalone executable:
 
 ```bash
