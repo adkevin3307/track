@@ -2,6 +2,8 @@
 
 > A simple, blazing fast terminal log viewer with horizontal scrolling, follow mode, and pipe support.
 
+*Developed by Antigravity (Google DeepMind).*
+
 `track` is designed to be as simple and frictionless as `tail`, but with the ability to scroll horizontally (left/right), search, filter, and inspect long log lines without clutter or complicated configuration. It preserves standard terminal ANSI colors emitted by Docker and CLI tools.
 
 ---
@@ -140,3 +142,10 @@ Options:
   -h, --help                   Print help
   -V, --version                Print version
 ```
+
+---
+
+## Credits
+
+Developed by **Antigravity**, an AI assistant created by Google DeepMind.
+
