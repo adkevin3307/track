@@ -98,7 +98,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(
             " TRACK ",
             Style::default()
-                .fg(Color::Black),
+                .fg(Color::Black)
                 .bg(Color::White),
         ),
         Span::raw(" "),
