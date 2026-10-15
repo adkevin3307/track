@@ -10,25 +10,24 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use clap::CommandFactory;
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyModifiers, MouseEventKind},
     execute,
-    terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-    },
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     tty::IsTty,
 };
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 
 use app::{App, InputMode};
-use reader::{spawn_reader, InputSource, ReaderEvent};
+use reader::{InputSource, ReaderEvent, spawn_reader};
 
 /// A simple, fast terminal log viewer with horizontal & vertical scrolling
 #[derive(Parser, Debug)]
-#[command(name = "track", author, version, about = "Simple, lightweight log viewer with horizontal scrolling", long_about = None)]
+#[command(name = "track", author, version, about = "Simple, lightweight log viewer with horizontal scrolling", long_about = None, help_template = "{about}\n\n\x1b[33mUSAGE:\x1b[0m\n    {usage}\n\n\x1b[33mARGUMENTS:\x1b[0m\n{positionals}\n\n\x1b[33mOPTIONS:\x1b[0m\n{options}\n", color = clap::ColorChoice::Always)]
 struct Cli {
     /// File to view (reads from stdin if not provided or when piped)
     #[arg(value_name = "FILE")]
@@ -67,34 +66,30 @@ fn main() -> io::Result<()> {
             if io::stdin().is_tty() {
                 eprintln!("track: No input provided.");
                 eprintln!();
-                eprintln!("Usage examples:");
-                eprintln!("  docker logs -f <container> | track");
-                eprintln!("  docker compose logs -f | track");
-                eprintln!("  tail -f /var/log/syslog | track");
-                eprintln!("  cat app.log | track");
-                eprintln!("  track <file.log>");
-                eprintln!();
-                eprintln!("For options, try 'track --help'.");
-                std::process::exit(1);
+                let mut cmd = Cli::command();
+                cmd.print_help().unwrap();
+                std::process::exit(0);
             }
             (InputSource::Stdin, "stdin".to_string(), true)
         }
     };
 
     // Setup terminal writer (use /dev/tty if stdin is piped)
-    let terminal_writer: Box<dyn Write> = if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
-        Box::new(tty)
-    } else if io::stdout().is_tty() {
-        Box::new(io::stdout())
-    } else {
-        Box::new(io::stderr())
-    };
+    let terminal_writer: Box<dyn Write> =
+        if let Ok(tty) = OpenOptions::new().read(true).write(true).open("/dev/tty") {
+            Box::new(tty)
+        } else if io::stdout().is_tty() {
+            Box::new(io::stdout())
+        } else {
+            Box::new(io::stderr())
+        };
 
     // Install panic hook to restore terminal cleanly on panic
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
-        let mut tty: Box<dyn Write> = if let Ok(f) = OpenOptions::new().write(true).open("/dev/tty") {
+        let mut tty: Box<dyn Write> = if let Ok(f) = OpenOptions::new().write(true).open("/dev/tty")
+        {
             Box::new(f)
         } else {
             Box::new(io::stderr())
@@ -122,7 +117,12 @@ fn main() -> io::Result<()> {
     // Initialize terminal once data starts flowing
     enable_raw_mode()?;
     let mut writer = terminal_writer;
-    execute!(writer, EnterAlternateScreen, Hide, event::EnableMouseCapture)?;
+    execute!(
+        writer,
+        EnterAlternateScreen,
+        Hide,
+        event::EnableMouseCapture
+    )?;
     let backend = CrosstermBackend::new(writer);
     let mut terminal = Terminal::new(backend)?;
 
@@ -187,7 +187,8 @@ fn run_app(
 
                     match app.input_mode {
                         InputMode::Normal => match (key.modifiers, key.code) {
-                            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Char('q')) => {
+                            (KeyModifiers::CONTROL, KeyCode::Char('c'))
+                            | (_, KeyCode::Char('q')) => {
                                 return Ok(());
                             }
                             // Follow mode toggle
@@ -289,23 +290,21 @@ fn run_app(
                         },
                     }
                 }
-                Event::Mouse(mouse) => {
-                    match mouse.kind {
-                        MouseEventKind::ScrollUp => {
-                            app.scroll_up(3);
-                        }
-                        MouseEventKind::ScrollDown => {
-                            app.scroll_down(3);
-                        }
-                        MouseEventKind::ScrollLeft => {
-                            app.scroll_left(4);
-                        }
-                        MouseEventKind::ScrollRight => {
-                            app.scroll_right(4);
-                        }
-                        _ => {}
+                Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        app.scroll_up(3);
                     }
-                }
+                    MouseEventKind::ScrollDown => {
+                        app.scroll_down(3);
+                    }
+                    MouseEventKind::ScrollLeft => {
+                        app.scroll_left(4);
+                    }
+                    MouseEventKind::ScrollRight => {
+                        app.scroll_right(4);
+                    }
+                    _ => {}
+                },
                 Event::Resize(_, _) => {
                     // Handled automatically on next draw
                 }
