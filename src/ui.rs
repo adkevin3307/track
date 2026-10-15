@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -48,13 +48,13 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(" [EOF] ", Style::default().fg(Color::Cyan).dim())
     } else if app.following {
         Span::styled(
-            " ● FOLLOWING ",
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            " FOLLOWING ",
+            Style::default().fg(Color::Green),
         )
     } else {
         Span::styled(
-            " ⏸ PAUSED ",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            " PAUSED ",
+            Style::default().fg(Color::Yellow),
         )
     };
 
@@ -73,7 +73,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
     let filter_span = if let Some(ref q) = app.filter_query {
         Span::styled(
             format!("[Filter: \"{}\" ({} lines)] ", q, total_lines),
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Magenta),
         )
     } else {
         Span::raw("")
@@ -98,14 +98,13 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(
             " TRACK ",
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::White)
-                .add_modifier(Modifier::BOLD),
+                .fg(Color::Black),
+                .bg(Color::White),
         ),
         Span::raw(" "),
         Span::styled(
             format!("[{}]", app.input_source_name),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::White),
         ),
         follow_span,
         wrap_span,
@@ -139,7 +138,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
     }
     left_spans.push(Span::styled(
         right_text,
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::DarkGray),
     ));
 
     let header_line = Line::from(left_spans);
@@ -200,7 +199,7 @@ fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
 
             let num_str = format!("{:>width$} │", orig_line_num, width = digits);
             let style = if is_current_match {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Yellow)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
@@ -249,8 +248,7 @@ fn render_log_line(line: &LogLine, search_query: Option<&str>) -> Line<'static> 
                             clean[start..end].to_string(),
                             Style::default()
                                 .bg(Color::Yellow)
-                                .fg(Color::Black)
-                                .add_modifier(Modifier::BOLD),
+                                .fg(Color::Black),
                         ));
                         last_idx = end;
                     }
