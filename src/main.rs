@@ -27,7 +27,7 @@ use reader::{InputSource, ReaderEvent, spawn_reader};
 
 /// A simple, fast terminal log viewer with horizontal & vertical scrolling
 #[derive(Parser, Debug)]
-#[command(name = "track", author, version, about = "Simple, lightweight log viewer with horizontal scrolling", long_about = None, help_template = "{about}\n\n\x1b[33mUSAGE:\x1b[0m\n    {usage}\n\n\x1b[33mARGUMENTS:\x1b[0m\n{positionals}\n\n\x1b[33mOPTIONS:\x1b[0m\n{options}\n", color = clap::ColorChoice::Always)]
+#[command(name = "track", author, version, about = "Simple, lightweight log viewer.", long_about = None, help_template = "{about}\n\n\x1b[33mUSAGE:\x1b[0m\n    {usage}\n\n\x1b[33mARGUMENTS:\x1b[0m\n{positionals}\n\n\x1b[33mOPTIONS:\x1b[0m\n{options}\n", color = clap::ColorChoice::Always)]
 struct Cli {
     /// File to view (reads from stdin if not provided or when piped)
     #[arg(value_name = "FILE")]
