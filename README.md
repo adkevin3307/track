@@ -10,7 +10,7 @@
 
 ## Features
 
-- **Piped & Streaming Input**: Pipe directly from `docker logs`, `docker compose logs`, `tail`, `cat`, or shell redirects (`<`).
+- **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`).
 - **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view.
 - **Follow Mode (like `tail -f`)**: Follows streaming logs in real time (`● FOLLOWING`). Automatically pauses when you scroll up (`⏸ PAUSED`), and resumes when you scroll back to the bottom or press `f`/`G`.
 - **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines.
@@ -59,39 +59,25 @@ cargo install --path .
 
 ## Usage Examples
 
-### Docker & Docker Compose
-```bash
-# Follow logs of a running Docker container
-docker logs -f my-container | track
-
-# Follow logs of all Docker Compose services
-docker compose logs -f | track
-
-# Piped sudo commands (password prompt is handled in your terminal as usual)
-sudo docker logs -f my-container | track
-sudo docker compose logs -f | track
-```
-
 ### Piped Commands
 ```bash
-# Follow a system log file (sudo password typed normally in terminal before track takes over)
-sudo tail -f /var/log/syslog | track
+# Pipe any command output (stdout) into track
+my-command | track
 
-# View output of any command with horizontal scrolling
-cat wide-output.log | track
-kubectl logs -f pod-name | track
+# Pipe both stdout and stderr into track
+my-command 2>&1 | track
 ```
 
 ### Direct File or Shell Redirection
 ```bash
 # View a log file directly
-track /var/log/app.log
+track my-file
 
 # View and follow a growing file (like tail -f)
-track -f /var/log/app.log
+track -f my-file
 
 # Shell input redirection
-track < /var/log/app.log
+track < my-file
 ```
 
 ---
