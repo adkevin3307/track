@@ -89,16 +89,18 @@ track < my-file
 | --- | --- |
 | `Left` / `h` | Scroll left 4 columns |
 | `Right` / `l` | Scroll right 4 columns |
-| `Shift+Left` / `H` / `[` | Scroll left 20 columns |
-| `Shift+Right` / `L` / `]` | Scroll right 20 columns |
-| `0` / `Home` | Jump to column 0 (beginning of line) |
+| `Ctrl+Left` / `H` / `[` | Scroll left 20 columns |
+| `Ctrl+Right` / `L` / `]` | Scroll right 20 columns |
+| `Home` / `0` / `^` | Jump to column 0 (beginning of line) |
+| `End` / `$` | Jump to end of line |
 | `Up` / `k` | Scroll up 1 line (pauses follow mode) |
 | `Down` / `j` | Scroll down 1 line |
+| `Ctrl+Up` / `Ctrl+Down` | Scroll up / down 5 lines |
 | `PageUp` / `Ctrl+U` / `b` | Scroll up 1 page |
 | `PageDown` / `Ctrl+D` / `Space` | Scroll down 1 page |
-| `g` / `Home` | Jump to top (first line) |
-| `G` / `End` | Jump to bottom & resume follow mode |
-| `Mouse Wheel` | Scroll up / down |
+| `g` / `Ctrl+Home` | Jump to top (first line) |
+| `G` / `Ctrl+End` | Jump to bottom & resume follow mode |
+| `Mouse Wheel` | Scroll up / down (hold `Ctrl` to scroll faster) |
 
 ### Modes & Display
 | Key | Action |

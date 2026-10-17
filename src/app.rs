@@ -214,6 +214,27 @@ impl App {
         self.horizontal_offset = 0;
     }
 
+    pub fn scroll_to_line_end(&mut self) {
+        if self.wrap {
+            return;
+        }
+        let total = self.total_display_lines();
+        let height = self.viewport_height;
+        let start_idx = self.vertical_offset.min(total);
+        let end_idx = (start_idx + height).min(total);
+        let max_len = (start_idx..end_idx)
+            .filter_map(|i| self.get_line(i))
+            .map(|l| l.clean_text().chars().count())
+            .max()
+            .unwrap_or(0);
+
+        if max_len > self.viewport_width {
+            self.horizontal_offset = max_len.saturating_sub(self.viewport_width) + 2;
+        } else {
+            self.horizontal_offset = 0;
+        }
+    }
+
     pub fn toggle_follow(&mut self) {
         self.following = !self.following;
         if self.following {
@@ -398,6 +419,37 @@ mod tests {
 
         app.scroll_right(15);
         app.scroll_to_col_zero();
+        assert_eq!(app.horizontal_offset, 0);
+    }
+
+    #[test]
+    fn test_scroll_to_line_end() {
+        let mut app = App::new("test".to_string(), 100, false, false);
+        app.viewport_width = 20;
+        app.viewport_height = 5;
+
+        // No lines
+        app.scroll_to_line_end();
+        assert_eq!(app.horizontal_offset, 0);
+
+        // Lines shorter than viewport width
+        app.add_lines(vec!["short line".to_string()]);
+        app.scroll_to_line_end();
+        assert_eq!(app.horizontal_offset, 0);
+
+        // Long line exceeding viewport width
+        let long_line = "a".repeat(50);
+        app.add_lines(vec![long_line]);
+        app.scroll_to_line_end();
+        assert_eq!(app.horizontal_offset, 50 - 20 + 2); // 32
+
+        // Back to col zero
+        app.scroll_to_col_zero();
+        assert_eq!(app.horizontal_offset, 0);
+
+        // In wrap mode, horizontal offset stays 0
+        app.toggle_wrap();
+        app.scroll_to_line_end();
         assert_eq!(app.horizontal_offset, 0);
     }
 

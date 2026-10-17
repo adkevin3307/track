@@ -186,6 +186,7 @@ fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         (None, area)
     };
+    app.viewport_width = content_area.width as usize;
 
     // Render line number gutter
     if let Some((g_area, digits)) = gutter_area {
@@ -330,8 +331,8 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_help_modal(f: &mut Frame, area: Rect) {
-    let modal_width = 68.min(area.width.saturating_sub(4));
-    let modal_height = 24.min(area.height.saturating_sub(2));
+    let modal_width = 72.min(area.width.saturating_sub(4));
+    let modal_height = 27.min(area.height.saturating_sub(2));
 
     let x = (area.width.saturating_sub(modal_width)) / 2;
     let y = (area.height.saturating_sub(modal_height)) / 2;
@@ -349,84 +350,92 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
     let help_text = vec![
         Line::from(Span::styled(" NAVIGATION", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  Left / h         ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Left / h           ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll left 4 columns", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Right / l        ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Right / l          ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll right 4 columns", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Shift+Left / H / [ ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Ctrl+Left / H / [  ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll left 20 columns", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Shift+Right / L / ]", Style::default().fg(Color::White).bold()),
+            Span::styled("  Ctrl+Right / L / ] ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll right 20 columns", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  0 / Home         ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Home / 0 / ^       ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll to column 0 (line start)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Up / k           ", Style::default().fg(Color::White).bold()),
+            Span::styled("  End / $            ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll to end of line", Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Up / k             ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll up 1 line (pauses follow)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Down / j         ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Down / j           ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll down 1 line", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  PageUp / Ctrl+U  ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Ctrl+Up / Ctrl+Down", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll up / down 5 lines", Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::styled("  PageUp / Ctrl+U    ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll up 1 page", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  PageDn / Ctrl+D  ", Style::default().fg(Color::White).bold()),
+            Span::styled("  PageDn / Ctrl+D    ", Style::default().fg(Color::White).bold()),
             Span::styled("Scroll down 1 page (Space also works)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  g                ", Style::default().fg(Color::White).bold()),
+            Span::styled("  g / Ctrl+Home      ", Style::default().fg(Color::White).bold()),
             Span::styled("Jump to top (first line)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  G / End          ", Style::default().fg(Color::White).bold()),
+            Span::styled("  G / Ctrl+End       ", Style::default().fg(Color::White).bold()),
             Span::styled("Jump to bottom & resume follow mode", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
         Line::from(Span::styled(" MODES & DISPLAY", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  f / F            ", Style::default().fg(Color::White).bold()),
+            Span::styled("  f / F              ", Style::default().fg(Color::White).bold()),
             Span::styled("Toggle follow mode (FOLLOWING / PAUSED)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  w                ", Style::default().fg(Color::White).bold()),
+            Span::styled("  w                  ", Style::default().fg(Color::White).bold()),
             Span::styled("Toggle soft line wrapping", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  #                ", Style::default().fg(Color::White).bold()),
+            Span::styled("  #                  ", Style::default().fg(Color::White).bold()),
             Span::styled("Toggle line numbers", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
         Line::from(Span::styled(" SEARCH & FILTER", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  /                ", Style::default().fg(Color::White).bold()),
+            Span::styled("  /                  ", Style::default().fg(Color::White).bold()),
             Span::styled("Search text / regex", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  n / N            ", Style::default().fg(Color::White).bold()),
+            Span::styled("  n / N              ", Style::default().fg(Color::White).bold()),
             Span::styled("Jump to Next / Previous search match", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  &                ", Style::default().fg(Color::White).bold()),
+            Span::styled("  &                  ", Style::default().fg(Color::White).bold()),
             Span::styled("Filter mode (show only matching lines)", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(vec![
-            Span::styled("  Esc              ", Style::default().fg(Color::White).bold()),
+            Span::styled("  Esc                ", Style::default().fg(Color::White).bold()),
             Span::styled("Clear search/filter or close prompt", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  q / Ctrl+C       ", Style::default().fg(Color::White).bold()),
+            Span::styled("  q / Ctrl+C         ", Style::default().fg(Color::White).bold()),
             Span::styled("Quit track", Style::default().fg(Color::DarkGray)),
         ]),
         Line::from(""),

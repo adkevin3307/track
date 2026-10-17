@@ -224,15 +224,31 @@ fn run_app(
                                 app.clear_search_and_filter();
                             }
 
-                            // Horizontal scrolling (Left / Right)
-                            (KeyModifiers::SHIFT, KeyCode::Left)
-                            | (_, KeyCode::Char('H'))
-                            | (_, KeyCode::Char('[')) => {
+                            // Document navigation (Top / Bottom)
+                            (m, KeyCode::Home) if m.contains(KeyModifiers::CONTROL) => {
+                                app.scroll_to_top();
+                            }
+                            (m, KeyCode::End) if m.contains(KeyModifiers::CONTROL) => {
+                                app.scroll_to_end();
+                            }
+                            (_, KeyCode::Char('g')) => {
+                                app.scroll_to_top();
+                            }
+                            (_, KeyCode::Char('G')) => {
+                                app.scroll_to_end();
+                            }
+
+                            // Horizontal scrolling (Left / Right / Home / End)
+                            (m, KeyCode::Left) if m.contains(KeyModifiers::CONTROL) => {
                                 app.scroll_left(20);
                             }
-                            (KeyModifiers::SHIFT, KeyCode::Right)
-                            | (_, KeyCode::Char('L'))
-                            | (_, KeyCode::Char(']')) => {
+                            (_, KeyCode::Char('H')) | (_, KeyCode::Char('[')) => {
+                                app.scroll_left(20);
+                            }
+                            (m, KeyCode::Right) if m.contains(KeyModifiers::CONTROL) => {
+                                app.scroll_right(20);
+                            }
+                            (_, KeyCode::Char('L')) | (_, KeyCode::Char(']')) => {
                                 app.scroll_right(20);
                             }
                             (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {
@@ -241,14 +257,20 @@ fn run_app(
                             (_, KeyCode::Right) | (_, KeyCode::Char('l')) => {
                                 app.scroll_right(4);
                             }
-                            (_, KeyCode::Char('0')) | (_, KeyCode::Char('^')) => {
+                            (_, KeyCode::Home) | (_, KeyCode::Char('0')) | (_, KeyCode::Char('^')) => {
                                 app.scroll_to_col_zero();
                             }
-                            (_, KeyCode::Char('$')) => {
-                                app.scroll_right(100);
+                            (_, KeyCode::End) | (_, KeyCode::Char('$')) => {
+                                app.scroll_to_line_end();
                             }
 
                             // Vertical scrolling (Up / Down)
+                            (m, KeyCode::Up) if m.contains(KeyModifiers::CONTROL) => {
+                                app.scroll_up(5);
+                            }
+                            (m, KeyCode::Down) if m.contains(KeyModifiers::CONTROL) => {
+                                app.scroll_down(5);
+                            }
                             (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
                                 app.scroll_up(1);
                             }
@@ -265,46 +287,43 @@ fn run_app(
                             | (_, KeyCode::Char(' ')) => {
                                 app.scroll_page_down();
                             }
-                            (_, KeyCode::Home) | (_, KeyCode::Char('g')) => {
-                                app.scroll_to_top();
-                            }
-                            (_, KeyCode::End) | (_, KeyCode::Char('G')) => {
-                                app.scroll_to_end();
-                            }
                             _ => {}
                         },
-                        InputMode::Search | InputMode::Filter => match key.code {
-                            KeyCode::Esc => {
+                        InputMode::Search | InputMode::Filter => match (key.modifiers, key.code) {
+                            (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
                                 app.cancel_input();
                             }
-                            KeyCode::Enter => {
+                            (_, KeyCode::Enter) => {
                                 app.submit_input();
                             }
-                            KeyCode::Backspace => {
+                            (_, KeyCode::Backspace) => {
                                 app.input_buffer.pop();
                             }
-                            KeyCode::Char(c) => {
+                            (_, KeyCode::Char(c)) => {
                                 app.input_buffer.push(c);
                             }
                             _ => {}
                         },
                     }
                 }
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollUp => {
-                        app.scroll_up(3);
+                Event::Mouse(mouse) => {
+                    let fast = mouse.modifiers.contains(KeyModifiers::CONTROL);
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => {
+                            app.scroll_up(if fast { 15 } else { 3 });
+                        }
+                        MouseEventKind::ScrollDown => {
+                            app.scroll_down(if fast { 15 } else { 3 });
+                        }
+                        MouseEventKind::ScrollLeft => {
+                            app.scroll_left(if fast { 20 } else { 4 });
+                        }
+                        MouseEventKind::ScrollRight => {
+                            app.scroll_right(if fast { 20 } else { 4 });
+                        }
+                        _ => {}
                     }
-                    MouseEventKind::ScrollDown => {
-                        app.scroll_down(3);
-                    }
-                    MouseEventKind::ScrollLeft => {
-                        app.scroll_left(4);
-                    }
-                    MouseEventKind::ScrollRight => {
-                        app.scroll_right(4);
-                    }
-                    _ => {}
-                },
+                }
                 Event::Resize(_, _) => {
                     // Handled automatically on next draw
                 }
