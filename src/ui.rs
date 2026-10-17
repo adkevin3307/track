@@ -331,7 +331,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_help_modal(f: &mut Frame, area: Rect) {
-    let modal_width = 72.min(area.width.saturating_sub(4));
+    let modal_width = 74.min(area.width.saturating_sub(4));
     let modal_height = 27.min(area.height.saturating_sub(2));
 
     let x = (area.width.saturating_sub(modal_width)) / 2;
@@ -343,105 +343,109 @@ fn render_help_modal(f: &mut Frame, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .title(" Track - Simple Log Viewer Help ")
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(" Track - Keyboard Shortcuts ")
         .title_alignment(Alignment::Center)
-        .style(Style::default().fg(Color::White).bg(Color::Black));
+        .title_style(Style::default().fg(Color::Cyan).bold())
+        .style(Style::default().bg(Color::Reset));
 
     let help_text = vec![
         Line::from(Span::styled(" NAVIGATION", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  Left / h           ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll left 4 columns", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Left / h             ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll left (4 columns)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Right / l          ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll right 4 columns", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Right / l            ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll right (4 columns)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+Left / H / [  ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll left 20 columns", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Ctrl+Left / H / [    ", Style::default().fg(Color::White).bold()),
+            Span::styled("Fast scroll left (20 columns)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+Right / L / ] ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll right 20 columns", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Ctrl+Right / L / ]   ", Style::default().fg(Color::White).bold()),
+            Span::styled("Fast scroll right (20 columns)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Home / 0 / ^       ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll to column 0 (line start)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Home / ^             ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll to start of line (column 0)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  End / $            ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll to end of line", Style::default().fg(Color::DarkGray)),
+            Span::styled("  End / $              ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll to end of visible line", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Up / k             ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll up 1 line (pauses follow)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Up / k               ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll up 1 line (pauses follow mode)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Down / j           ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll down 1 line", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Down / j             ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll down 1 line", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+Up / Ctrl+Down", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll up / down 5 lines", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Ctrl+Up / Ctrl+Down  ", Style::default().fg(Color::White).bold()),
+            Span::styled("Fast scroll up / down (5 lines)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  PageUp / Ctrl+U    ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll up 1 page", Style::default().fg(Color::DarkGray)),
+            Span::styled("  PageUp / Ctrl+U      ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll up 1 full page", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  PageDn / Ctrl+D    ", Style::default().fg(Color::White).bold()),
-            Span::styled("Scroll down 1 page (Space also works)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  PageDn / Ctrl+D      ", Style::default().fg(Color::White).bold()),
+            Span::styled("Scroll down 1 full page (or Space)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  g / Ctrl+Home      ", Style::default().fg(Color::White).bold()),
-            Span::styled("Jump to top (first line)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  g / Ctrl+Home        ", Style::default().fg(Color::White).bold()),
+            Span::styled("Jump to top of log (first line)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  G / Ctrl+End       ", Style::default().fg(Color::White).bold()),
-            Span::styled("Jump to bottom & resume follow mode", Style::default().fg(Color::DarkGray)),
+            Span::styled("  G / Ctrl+End         ", Style::default().fg(Color::White).bold()),
+            Span::styled("Jump to bottom & resume live follow", Style::default().fg(Color::Gray)),
         ]),
         Line::from(""),
         Line::from(Span::styled(" MODES & DISPLAY", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  f / F              ", Style::default().fg(Color::White).bold()),
-            Span::styled("Toggle follow mode (FOLLOWING / PAUSED)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  f / F                ", Style::default().fg(Color::White).bold()),
+            Span::styled("Toggle follow mode (FOLLOWING / PAUSED)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  w                  ", Style::default().fg(Color::White).bold()),
-            Span::styled("Toggle soft line wrapping", Style::default().fg(Color::DarkGray)),
+            Span::styled("  w                    ", Style::default().fg(Color::White).bold()),
+            Span::styled("Toggle soft line wrap (wrap vs horizontal scroll)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  #                  ", Style::default().fg(Color::White).bold()),
-            Span::styled("Toggle line numbers", Style::default().fg(Color::DarkGray)),
+            Span::styled("  #                    ", Style::default().fg(Color::White).bold()),
+            Span::styled("Toggle line numbers gutter (pinned left)", Style::default().fg(Color::Gray)),
         ]),
         Line::from(""),
         Line::from(Span::styled(" SEARCH & FILTER", Style::default().fg(Color::Cyan).bold())),
         Line::from(vec![
-            Span::styled("  /                  ", Style::default().fg(Color::White).bold()),
-            Span::styled("Search text / regex", Style::default().fg(Color::DarkGray)),
+            Span::styled("  /                    ", Style::default().fg(Color::White).bold()),
+            Span::styled("Search text or regular expression", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  n / N              ", Style::default().fg(Color::White).bold()),
-            Span::styled("Jump to Next / Previous search match", Style::default().fg(Color::DarkGray)),
+            Span::styled("  n / N                ", Style::default().fg(Color::White).bold()),
+            Span::styled("Jump to next / previous search match", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  &                  ", Style::default().fg(Color::White).bold()),
-            Span::styled("Filter mode (show only matching lines)", Style::default().fg(Color::DarkGray)),
+            Span::styled("  &                    ", Style::default().fg(Color::White).bold()),
+            Span::styled("Filter view to show only matching lines", Style::default().fg(Color::Gray)),
         ]),
         Line::from(vec![
-            Span::styled("  Esc                ", Style::default().fg(Color::White).bold()),
-            Span::styled("Clear search/filter or close prompt", Style::default().fg(Color::DarkGray)),
+            Span::styled("  Esc                  ", Style::default().fg(Color::White).bold()),
+            Span::styled("Clear active search/filter, or cancel input", Style::default().fg(Color::Gray)),
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  q / Ctrl+C         ", Style::default().fg(Color::White).bold()),
-            Span::styled("Quit track", Style::default().fg(Color::DarkGray)),
+            Span::styled("  q / Ctrl+C           ", Style::default().fg(Color::White).bold()),
+            Span::styled("Quit track cleanly", Style::default().fg(Color::Gray)),
         ]),
         Line::from(""),
         Line::from(Span::styled(" Press <Esc>, <q>, or <?> to close this help ", Style::default().fg(Color::Yellow))),
     ];
 
-    let p = Paragraph::new(help_text).block(block);
+    let p = Paragraph::new(help_text)
+        .block(block)
+        .style(Style::default().bg(Color::Reset));
     f.render_widget(p, modal_area);
 }

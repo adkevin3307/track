@@ -91,7 +91,7 @@ track < my-file
 | `Right` / `l` | Scroll right 4 columns |
 | `Ctrl+Left` / `H` / `[` | Scroll left 20 columns |
 | `Ctrl+Right` / `L` / `]` | Scroll right 20 columns |
-| `Home` / `0` / `^` | Jump to column 0 (beginning of line) |
+| `Home` / `^` | Jump to column 0 (beginning of line) |
 | `End` / `$` | Jump to end of line |
 | `Up` / `k` | Scroll up 1 line (pauses follow mode) |
 | `Down` / `j` | Scroll down 1 line |

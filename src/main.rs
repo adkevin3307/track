@@ -257,7 +257,7 @@ fn run_app(
                             (_, KeyCode::Right) | (_, KeyCode::Char('l')) => {
                                 app.scroll_right(4);
                             }
-                            (_, KeyCode::Home) | (_, KeyCode::Char('0')) | (_, KeyCode::Char('^')) => {
+                            (_, KeyCode::Home) | (_, KeyCode::Char('^')) => {
                                 app.scroll_to_col_zero();
                             }
                             (_, KeyCode::End) | (_, KeyCode::Char('$')) => {
