@@ -3,6 +3,7 @@
 > A simple, blazing fast terminal log viewer with horizontal scrolling, follow mode, and pipe support.
 
 *Developed by Antigravity (Google DeepMind).*
+*Reviewed, fixed and extended by Claude Code (Anthropic).*
 
 `track` is designed to be as simple and frictionless as `tail`, but with the ability to scroll horizontally (left/right), search, filter, and inspect long log lines without clutter or complicated configuration. It preserves standard terminal ANSI colors emitted by Docker and CLI tools.
 
@@ -11,14 +12,16 @@
 ## Features
 
 - **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`).
-- **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view.
-- **Follow Mode (like `tail -f`)**: Follows streaming logs in real time (`● FOLLOWING`). Automatically pauses when you scroll up (`⏸ PAUSED`), and resumes when you scroll back to the bottom or press `f`/`G`.
-- **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines.
+- **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view. Measured in display columns, so tabs, CJK and emoji line up.
+- **Follow Mode (like `tail -F`)**: Files and pipes are followed by default (`FOLLOWING`). Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or pressing `f`/`G` resumes. Truncated and rotated log files are detected and reopened, and an incomplete last line is shown as it is being written.
+- **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines. The newest line always stays visible while following.
 - **ANSI Color Support**: Preserves the original colors output by Docker containers and CLI applications while using the terminal's default colors for UI elements.
-- **Search & Highlighting**: Press `/` to search with regular expressions or plain text; jump through matches with `n` / `N`.
-- **Filter Mode**: Press `&` to view only log lines that match a specific pattern.
-- **Line Numbers**: Press `#` to toggle line numbers on/off. When scrolling horizontally, line numbers remain pinned on the left.
-- **High Performance**: Background streaming reader with non-blocking ingestion and low memory overhead.
+- **Search & Highlighting**: Press `/` to search with a regular expression (smart case: case-insensitive unless the pattern has an uppercase letter; invalid regexes are matched literally). Matches are highlighted live while typing; jump through them with `n` / `N`.
+- **Stackable Filters**: Press `&` to show only matching lines, `&` again to narrow further, and `&!pattern` to hide noise. `Esc` removes the most recent one.
+- **Line Numbers**: Press `#` to toggle line numbers. They stay absolute (input line numbers) even after old lines are dropped from the buffer, and stay pinned on the left when scrolling horizontally. Press `:` to jump to a line number.
+- **Text Selection Friendly**: The mouse is not captured by default, so you can select and copy text. Use `-m` or press `m` to enable mouse wheel scrolling.
+- **Robust Input**: Invalid UTF-8 bytes are shown as `�` instead of stopping the reader.
+- **High Performance**: Background streaming reader, incremental filter/search matching, and redraws only when something changes.
 
 ---
 
@@ -73,8 +76,11 @@ my-command 2>&1 | track
 # View a log file directly
 track my-file
 
-# View and follow a growing file (like tail -f)
-track -f my-file
+# Read a file once, starting at the top (don't follow)
+track --no-follow my-file
+
+# Keep at most 10,000 lines in memory, wrap long lines, show line numbers
+track -b 10000 -w -N my-file
 
 # Shell input redirection
 track < my-file
@@ -92,7 +98,7 @@ track < my-file
 | `Ctrl+Left` / `H` / `[` | Scroll left 20 columns |
 | `Ctrl+Right` / `L` / `]` | Scroll right 20 columns |
 | `Home` / `^` | Jump to column 0 (beginning of line) |
-| `End` / `$` | Jump to end of line |
+| `End` / `$` | Jump to the end of the longest visible line |
 | `Up` / `k` | Scroll up 1 line (pauses follow mode) |
 | `Down` / `j` | Scroll down 1 line |
 | `Ctrl+Up` / `Ctrl+Down` | Scroll up / down 5 lines |
@@ -100,7 +106,8 @@ track < my-file
 | `PageDown` / `Ctrl+D` / `Space` | Scroll down 1 page |
 | `g` / `Ctrl+Home` | Jump to top (first line) |
 | `G` / `Ctrl+End` | Jump to bottom & resume follow mode |
-| `Mouse Wheel` | Scroll up / down (hold `Ctrl` to scroll faster) |
+| `:` | Go to line number |
+| `Mouse Wheel` | Scroll up / down when mouse capture is on (hold `Ctrl` to scroll faster) |
 
 ### Modes & Display
 | Key | Action |
@@ -108,16 +115,28 @@ track < my-file
 | `f` / `F` | Toggle Follow mode (`FOLLOWING` ↔ `PAUSED`) |
 | `w` | Toggle soft line wrapping (`Wrap: ON` ↔ `Wrap: OFF`) |
 | `#` | Toggle line numbers |
-| `?` | Show / hide Help overlay |
+| `m` | Toggle mouse capture (wheel scrolling ↔ native text selection) |
+| `Ctrl+L` | Redraw the screen |
+| `?` | Show / hide Help overlay (scroll with `j` / `k`) |
 
 ### Search & Filtering
 | Key | Action |
 | --- | --- |
-| `/` | Start search prompt (case-insensitive substring or regex) |
+| `/` | Search (regex, smart case; highlighted live while typing) |
 | `n` | Jump to next search match |
 | `N` | Jump to previous search match |
-| `&` | Filter mode (show only matching lines) |
-| `Esc` | Clear search / filter or cancel current prompt |
+| `&` | Add a filter (show only matching lines; filters stack) |
+| `&` then `!pattern` | Add an exclude filter (hide matching lines) |
+| `&` then `Enter` (empty) | Clear all filters |
+| `Esc` | Clear the search first, then remove the most recent filter |
+
+### Prompt Editing (in `/`, `&` and `:` prompts)
+| Key | Action |
+| --- | --- |
+| `Left` / `Right`, `Home` / `End`, `Ctrl+A` / `Ctrl+E` | Move the cursor |
+| `Ctrl+U` / `Ctrl+W` | Delete to start of line / delete previous word |
+| `Up` / `Down` | Browse search / filter history |
+| `Enter` / `Esc` | Submit / cancel (`Backspace` on an empty prompt also cancels) |
 
 ### General
 | Key | Action |
@@ -132,20 +151,28 @@ track < my-file
 Usage: track [OPTIONS] [FILE]
 
 Arguments:
-  [FILE]  File to view (reads from stdin if not provided or when piped)
+  [FILE]  File to view (reads from stdin if not provided)
 
 Options:
-  -n, --max-lines <MAX_LINES>  Maximum lines to retain in memory buffer [default: 100000]
-  -w, --wrap                   Start with line wrapping enabled
-  -l, --numbers                Start with line numbers displayed
-  -f, --follow                 Follow file if reading from a file (like tail -f)
-  -h, --help                   Print help
-  -V, --version                Print version
+  -b, --buffer-lines <LINES>  Maximum lines kept in memory; the oldest lines are dropped [default: 100000]
+  -w, --wrap                  Start with line wrapping enabled
+  -N, --line-numbers          Start with line numbers displayed
+      --no-follow             Read the input once instead of following it, and start at the top
+  -m, --mouse                 Capture the mouse for wheel scrolling (disables terminal text selection; toggle with `m`)
+  -h, --help                  Print help
+  -V, --version               Print version
 ```
+
+The old spellings still work: `--max-lines`, `-l` / `--numbers`, and `-f` / `--follow` (following is now the default).
 
 ---
 
 ## Credits
 
 Developed by **Antigravity**, an AI assistant created by Google DeepMind.
+
+Reviewed, fixed and extended by **Claude Code**, an AI coding assistant created by Anthropic:
+bug fixes (search highlight crash, invalid UTF-8 handling, absolute line numbers, wrap-mode
+following, log rotation), smart-case search, stackable/exclude filters, prompt editing & history,
+go-to-line, opt-in mouse capture, and on-demand redraws.
 
