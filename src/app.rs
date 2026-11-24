@@ -52,7 +52,9 @@ pub struct App {
     partial_pending: bool,
 
     // Scrolling ("view" indices are positions in the filtered view, "real" ones in `lines`)
+    /// Top view line, and (in wrap mode) how many of its rows are scrolled past.
     pub vertical_offset: usize,
+    pub row_offset: usize,
     pub horizontal_offset: usize,
     pub following: bool,
     pub viewport_height: usize,
@@ -100,6 +102,7 @@ impl App {
             partial_pending: false,
 
             vertical_offset: 0,
+            row_offset: 0,
             horizontal_offset: 0,
             following,
             viewport_height: 20,
@@ -195,6 +198,9 @@ impl App {
                 .current_match_idx
                 .and_then(|c| c.checked_sub(match_drop));
 
+            if self.vertical_offset < view_drop {
+                self.row_offset = 0;
+            }
             self.vertical_offset = self.vertical_offset.saturating_sub(view_drop);
         }
 
@@ -284,26 +290,89 @@ impl App {
         }
     }
 
-    /// The largest top line that still fills the viewport down to the last line.
-    pub fn max_vertical_scroll(&self) -> usize {
+    /// Current scroll position: (top view line, rows of it scrolled past).
+    pub fn position(&self) -> (usize, usize) {
+        (self.vertical_offset, self.row_offset)
+    }
+
+    fn set_position(&mut self, (line, row): (usize, usize)) {
+        self.vertical_offset = line;
+        self.row_offset = row;
+    }
+
+    /// The last position that still fills the viewport down to the last row.
+    pub fn max_position(&self) -> (usize, usize) {
         let total = self.total_display_lines();
         if !self.wrap {
-            return total.saturating_sub(self.viewport_height);
+            return (total.saturating_sub(self.viewport_height), 0);
         }
-        let mut rows = 0;
-        let mut top = total;
-        while top > 0 {
-            rows += self.line_rows(top - 1);
-            if rows > self.viewport_height {
+        let mut needed = self.viewport_height.max(1);
+        for line in (0..total).rev() {
+            let rows = self.line_rows(line);
+            if rows >= needed {
+                return (line, rows - needed);
+            }
+            needed -= rows;
+        }
+        (0, 0)
+    }
+
+    /// Bring the position back into range (after resizes, filter changes, wrap toggles).
+    pub fn clamp_position(&mut self) {
+        if self.wrap {
+            let rows = self.line_rows(self.vertical_offset);
+            self.row_offset = self.row_offset.min(rows.saturating_sub(1));
+        } else {
+            self.row_offset = 0;
+        }
+        let pos = self.position().min(self.max_position());
+        self.set_position(pos);
+    }
+
+    /// `pos` moved down by `amount` screen rows, stopping at the bottom.
+    fn advance(&self, (mut line, mut row): (usize, usize), mut amount: usize) -> (usize, usize) {
+        let max = self.max_position();
+        if !self.wrap {
+            return (line.saturating_add(amount), 0).min(max);
+        }
+        while amount > 0 && (line, row) < max {
+            let rows = self.line_rows(line);
+            if row + 1 < rows {
+                let step = (rows - 1 - row).min(amount);
+                row += step;
+                amount -= step;
+            } else {
+                line += 1;
+                row = 0;
+                amount -= 1;
+            }
+        }
+        (line, row).min(max)
+    }
+
+    /// `pos` moved up by `amount` screen rows, stopping at the top.
+    fn retreat(&self, (mut line, mut row): (usize, usize), mut amount: usize) -> (usize, usize) {
+        if !self.wrap {
+            return (line.saturating_sub(amount), 0);
+        }
+        while amount > 0 {
+            if row > 0 {
+                let step = row.min(amount);
+                row -= step;
+                amount -= step;
+            } else if line > 0 {
+                line -= 1;
+                row = self.line_rows(line) - 1;
+                amount -= 1;
+            } else {
                 break;
             }
-            top -= 1;
         }
-        top.min(total.saturating_sub(1))
+        (line, row)
     }
 
     pub fn is_at_bottom(&self) -> bool {
-        self.vertical_offset >= self.max_vertical_scroll()
+        self.position() >= self.max_position()
     }
 
     /// Lines after the last one drawn on screen.
@@ -312,22 +381,23 @@ impl App {
     }
 
     pub fn scroll_to_bottom(&mut self) {
-        self.vertical_offset = self.max_vertical_scroll();
+        let max = self.max_position();
+        self.set_position(max);
     }
 
+    /// Scroll up by screen rows (log lines unless wrapping).
     pub fn scroll_up(&mut self, amount: usize) {
         self.following = false;
-        self.vertical_offset = self.vertical_offset.saturating_sub(amount);
+        let pos = self.retreat(self.position(), amount);
+        self.set_position(pos);
     }
 
+    /// Scroll down by screen rows; reaching the bottom resumes following.
     pub fn scroll_down(&mut self, amount: usize) {
-        let max_scroll = self.max_vertical_scroll();
-        let new_offset = self.vertical_offset.saturating_add(amount);
-        if new_offset >= max_scroll {
-            self.vertical_offset = max_scroll;
+        let pos = self.advance(self.position(), amount);
+        self.set_position(pos);
+        if self.is_at_bottom() {
             self.following = true;
-        } else {
-            self.vertical_offset = new_offset;
         }
     }
 
@@ -343,7 +413,7 @@ impl App {
 
     pub fn scroll_to_top(&mut self) {
         self.following = false;
-        self.vertical_offset = 0;
+        self.set_position((0, 0));
     }
 
     pub fn scroll_to_end(&mut self) {
@@ -408,6 +478,7 @@ impl App {
 
     pub fn toggle_wrap(&mut self) {
         self.wrap = !self.wrap;
+        self.row_offset = 0;
         if self.wrap {
             self.horizontal_offset = 0;
         }
@@ -527,7 +598,7 @@ impl App {
             self.scroll_to_bottom();
         } else {
             let view = anchor.map_or(0, |real| self.real_to_view(real));
-            self.vertical_offset = view.min(self.max_vertical_scroll());
+            self.set_position((view, 0).min(self.max_position()));
         }
     }
 
@@ -634,7 +705,8 @@ impl App {
         self.following = false;
         // Center the target in the viewport if possible
         let half = self.viewport_height / 2;
-        self.vertical_offset = line_idx.saturating_sub(half).min(self.max_vertical_scroll());
+        let pos = self.retreat((line_idx, 0), half).min(self.max_position());
+        self.set_position(pos);
     }
 }
 
@@ -1002,11 +1074,41 @@ mod tests {
         app.viewport_width = 10;
         // Last two lines take 2 rows each
         app.add_lines(vec!["a".into(), "b".into(), "c".repeat(15), "d".repeat(15)]);
-        assert_eq!(app.vertical_offset, 2);
+        assert_eq!(app.position(), (2, 0));
 
-        // A single line taller than the viewport is the top line
+        // A line taller than the viewport shows its last rows
         app.add_lines(vec!["e".repeat(100)]);
-        assert_eq!(app.vertical_offset, 4);
+        assert_eq!(app.position(), (4, 6));
+    }
+
+    #[test]
+    fn test_wrap_mode_scrolls_by_rows_through_tall_lines() {
+        let mut app = App::new("test".to_string(), 100, true, false, true);
+        app.viewport_height = 4;
+        app.viewport_width = 10;
+        app.add_lines(vec!["a".into(), "x".repeat(100), "b".into()]); // rows: 1, 10, 1
+        assert_eq!(app.position(), (1, 7));
+
+        // Every row of the tall line is reachable
+        app.scroll_up(1);
+        assert!(!app.following);
+        assert_eq!(app.position(), (1, 6));
+        app.scroll_up(6);
+        assert_eq!(app.position(), (1, 0));
+        app.scroll_up(1);
+        assert_eq!(app.position(), (0, 0));
+        app.scroll_up(5);
+        assert_eq!(app.position(), (0, 0));
+
+        app.scroll_down(3);
+        assert_eq!(app.position(), (1, 2));
+        app.scroll_down(100);
+        assert_eq!(app.position(), (1, 7));
+        assert!(app.following);
+
+        // Leaving wrap mode resets the row offset
+        app.toggle_wrap();
+        assert_eq!(app.row_offset, 0);
     }
 
     #[test]

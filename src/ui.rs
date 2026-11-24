@@ -179,7 +179,7 @@ fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
     if app.following {
         app.scroll_to_bottom();
     } else {
-        app.vertical_offset = app.vertical_offset.min(app.max_vertical_scroll());
+        app.clamp_position();
     }
 
     // While typing a search, preview its matches
@@ -249,32 +249,22 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
             .collect();
     }
 
-    // At the bottom in wrap mode, align the last line with the bottom edge (showing the
-    // tail of the line above if it doesn't fully fit) so the newest output is always visible.
-    let bottom_aligned = app.is_at_bottom();
-    let start = if bottom_aligned {
-        app.vertical_offset.saturating_sub(1)
-    } else {
-        app.vertical_offset
-    };
-
+    // The top line may be partly scrolled past (`row_offset` rows)
     let mut rows = Vec::new();
-    for i in start..total {
-        if !bottom_aligned && rows.len() >= height {
+    let mut skip = app.row_offset;
+    for i in app.vertical_offset..total {
+        if rows.len() >= height {
             break;
         }
         let wrapped = wrap_line(&styled_line(app, i, highlight), width);
-        rows.extend(wrapped.into_iter().enumerate().map(|(n, line)| Row {
+        rows.extend(wrapped.into_iter().enumerate().skip(skip).map(|(n, line)| Row {
             view_index: i,
             first: n == 0,
             line,
         }));
+        skip = 0;
     }
-    if bottom_aligned {
-        rows.drain(..rows.len().saturating_sub(height));
-    } else {
-        rows.truncate(height);
-    }
+    rows.truncate(height);
     rows
 }
 
