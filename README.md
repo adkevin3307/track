@@ -46,11 +46,13 @@ any configuration.
 - **ANSI colors preserved** from Docker and other CLI tools; the UI itself
   uses the terminal's default colors and background.
 - **Regex search** with smart case (case-insensitive unless the pattern has an
-  uppercase letter); invalid regexes are matched literally. Matches are
-  highlighted live while typing; `n`/`N` step through them, continuing from
-  the screen after you scroll away.
+  uppercase letter); invalid regexes are matched literally. `/` opens a small
+  input box; matches are highlighted and jumped to while typing, `n`/`N` step
+  through them (continuing from the screen after you scroll away), and `esc`
+  hides the highlights. See [Shared search](#shared-search).
 - **Stackable filters.** `&` shows only matching lines, `&` again narrows
-  further, and `&!pattern` hides noise. `esc` removes the most recent one.
+  further, and `&!pattern` hides noise. `esc` removes the most recent one
+  (after hiding the search highlights).
   Search and filters match the text as displayed (colors stripped, tabs
   expanded).
 - **Line numbers** with `#`. They stay absolute (input line numbers) even
@@ -142,7 +144,7 @@ my-command 2>&1 | track          # stdout and stderr
 │  1 │ log lines, scrolled sideways or wrapped                                  │
 │  2 │ (line numbers in the gutter with #)                                      │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- key hints, the / & : prompts, or a status message
+ key hints or a status message (the / & : prompts open in a box at the top)
 ```
 
 The header shows the input, the follow state (`following`, `paused · N below`
@@ -177,14 +179,14 @@ other key closes it).
 
 | Key | Action |
 |---|---|
-| `/` | Search (regex, smart case; highlighted live while typing) |
-| `n` / `N` | Next / previous match (from the screen after scrolling away) |
+| `/` | Search (regex, smart case; highlights and jumps while typing) |
+| `n` / `N` | Next / previous match (from the screen after scrolling away); shows hidden highlights |
 | `&` | Add a filter: show only matching lines (filters stack) |
 | `&` then `!pattern` | Add an exclude filter: hide matching lines |
 | `&` then `enter` (empty) | Clear all filters |
-| `esc` | Clear the search first, then remove the most recent filter |
+| `esc` | Hide the search highlights first, then remove the most recent filter |
 
-**Prompt editing** (in the `/`, `&` and `:` prompts)
+**Prompt editing** (in the `/`, `&` and `:` input boxes)
 
 | Key | Action |
 |---|---|
@@ -219,7 +221,7 @@ keys do the same thing in all three:
 | `H`/`L` | Sideways half a page |
 | `home` / `end` | Line start / end (not top / bottom) |
 | `/`, `n` / `N` | Search, next / previous match |
-| `esc` | Clear the search, or go back |
+| `esc` | Hide the search highlights, then go back |
 | `?` | Help (any key closes it; `j`/`k` scroll it when it doesn't fit) |
 | `q`, `ctrl-c` | Quit |
 | mouse wheel | Scroll |
@@ -229,6 +231,32 @@ keys do the same thing in all three:
 Other keys are specific to one tool. Where a view doesn't scroll sideways,
 `h`/`l`/`H`/`L` may do something else there (in `git-graph`'s commit list
 they move between panes and jump to HEAD).
+
+### Shared search
+
+`/` opens the same small input box near the top of the screen in all three
+(in the style of snacks.nvim's input):
+
+```
+          ╭───────────────────── Search ─────────────────────╮
+          │  error█                               12 matches │
+          ╰──── enter search · ↑/↓ history · esc cancel ─────╯
+```
+
+- Patterns are regular expressions with smart case (case-insensitive unless
+  the pattern has an uppercase letter); an invalid regex is matched literally.
+- While you type, matches are highlighted, the view jumps to the first match
+  from where you started, and the box shows how many there are.
+- `enter` keeps the search; `esc` cancels it and goes back to where you were;
+  an empty search clears it.
+- Editing: `←`/`→`, `home`/`end`, `ctrl-a`/`ctrl-e` move the cursor,
+  `ctrl-u`/`ctrl-w` delete to the start / the previous word, `↑`/`↓` browse
+  earlier searches, and `backspace` on an empty box closes it.
+- The main panel's title shows the search and the current match, e.g.
+  `/error  3/12`.
+- Matches are highlighted in black on yellow. `esc` hides the highlights but
+  keeps the search (the title then says `hidden`), like vim's `:noh`; `n` / `N`
+  show them again and jump to the next / previous match.
 
 ## Copying text
 

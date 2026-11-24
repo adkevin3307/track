@@ -83,6 +83,12 @@ pub struct App {
     pub search_history: Vec<String>,
     pub filter_history: Vec<String>,
     pub search: Option<Matcher>,
+    /// Esc hides the search highlights (like vim's :noh); n / N show them again.
+    pub search_hidden: bool,
+    /// Matches of the search being typed (shown in the input box).
+    pub preview_count: Option<usize>,
+    /// Scroll position and follow state when the search box opened, restored on cancel.
+    search_origin: Option<((usize, usize), bool)>,
     pub filters: Vec<Matcher>,
     pub filtered_indices: Vec<usize>,
     pub search_match_indices: Vec<usize>,
@@ -138,6 +144,9 @@ impl App {
             search_history: Vec::new(),
             filter_history: Vec::new(),
             search: None,
+            search_hidden: false,
+            preview_count: None,
+            search_origin: None,
             filters: Vec::new(),
             filtered_indices: Vec::new(),
             search_match_indices: Vec::new(),
@@ -555,11 +564,47 @@ impl App {
     pub fn start_input(&mut self, mode: InputMode) {
         self.input_mode = mode;
         self.editor.clear();
+        self.preview_count = None;
+        if mode == InputMode::Search {
+            self.search_origin = Some((self.position(), self.following));
+        }
     }
 
     pub fn cancel_input(&mut self) {
+        self.restore_search_origin();
+        self.search_origin = None;
         self.input_mode = InputMode::Normal;
         self.editor.clear();
+    }
+
+    fn restore_search_origin(&mut self) {
+        if let Some((pos, following)) = self.search_origin {
+            self.set_position(pos);
+            self.following = following;
+        }
+    }
+
+    /// While typing a search: count its matches and jump to the first one at or
+    /// after where the search started (wrapping around), like vim's incsearch.
+    pub fn preview_search(&mut self) {
+        self.restore_search_origin();
+        let Some(matcher) = Matcher::new(self.editor.text(), false) else {
+            self.preview_count = None;
+            return;
+        };
+        let total = self.total_display_lines();
+        let matches: Vec<usize> = (0..total)
+            .filter(|&v| self.get_line(v).is_some_and(|l| matcher.is_match(l.clean_text())))
+            .collect();
+        self.preview_count = Some(matches.len());
+        let top = self.vertical_offset;
+        let target = matches.iter().find(|&&v| v >= top).or(matches.first());
+        if let Some(&line) = target {
+            // Only move when the match isn't already on screen
+            if line < top || line >= self.bottom_line() {
+                self.jump_to_line(line);
+            }
+        }
     }
 
     pub fn history_prev(&mut self) {
@@ -588,6 +633,9 @@ impl App {
 
         match mode {
             InputMode::Search => {
+                // Search again from where the search started
+                self.restore_search_origin();
+                self.search_origin = None;
                 push_history(&mut self.search_history, &query);
                 self.set_search(Matcher::new(&query, false));
             }
@@ -615,11 +663,11 @@ impl App {
         }
     }
 
-    /// Esc in normal mode: clear the search first, then remove filters one at a time.
+    /// Esc in normal mode: hide the search highlights first (n / N show them again),
+    /// then remove filters one at a time.
     pub fn clear_last_search_or_filter(&mut self) {
-        if self.search.is_some() {
-            self.set_search(None);
-            self.status_message = Some("Search cleared".to_string());
+        if self.search.is_some() && !self.search_hidden {
+            self.search_hidden = true;
         } else if let Some(removed) = self.filters.last().map(Matcher::label) {
             let mut filters = self.filters.clone();
             filters.pop();
@@ -630,6 +678,7 @@ impl App {
 
     fn set_search(&mut self, search: Option<Matcher>) {
         self.search = search;
+        self.search_hidden = false;
         self.recompute_search_matches();
         if self.search.is_some() {
             if self.search_match_indices.is_empty() {
@@ -679,6 +728,7 @@ impl App {
 
     /// Returns false (and sets a status message) when there is nothing to jump to.
     fn check_can_jump(&mut self) -> bool {
+        self.search_hidden = false;
         match &self.search {
             None => {
                 self.status_message = Some("No active search (press / to search)".to_string());
@@ -1252,17 +1302,44 @@ mod tests {
     }
 
     #[test]
-    fn test_esc_clears_search_before_filters() {
+    fn test_esc_hides_search_before_removing_filters() {
         let mut app = app_with(&["a1", "b1", "a2"]);
         submit(&mut app, InputMode::Filter, "a");
         submit(&mut app, InputMode::Search, "2");
 
+        // The first esc hides the highlights but keeps the search
         app.clear_last_search_or_filter();
-        assert!(app.search.is_none());
+        assert!(app.search.is_some() && app.search_hidden);
         assert_eq!(app.filters.len(), 1);
 
+        // n shows them again
+        app.jump_to_next_match();
+        assert!(!app.search_hidden);
+
+        app.clear_last_search_or_filter();
         app.clear_last_search_or_filter();
         assert!(app.filters.is_empty());
+
+        // An empty search clears it
+        submit(&mut app, InputMode::Search, "");
+        assert!(app.search.is_none());
+    }
+
+    #[test]
+    fn test_search_preview_jumps_and_cancel_restores() {
+        let lines: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
+        let mut app = App::new("test".to_string(), 1000, false, false, false);
+        app.viewport_height = 10;
+        app.add_lines(lines);
+
+        app.start_input(InputMode::Search);
+        app.editor.set_text("line 77");
+        app.preview_search();
+        assert_eq!(app.preview_count, Some(1));
+        assert!(app.vertical_offset <= 77 && 77 < app.vertical_offset + 10);
+
+        app.cancel_input();
+        assert_eq!(app.position(), (0, 0));
     }
 
     #[test]

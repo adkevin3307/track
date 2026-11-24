@@ -18,6 +18,7 @@ const DIM: Color = Color::DarkGray;
 const GREEN: Color = Color::Rgb(102, 187, 102);
 const YELLOW: Color = Color::Rgb(204, 178, 85);
 const MAGENTA: Color = Color::Rgb(200, 115, 200);
+const RED: Color = Color::Rgb(217, 106, 106);
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -36,6 +37,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     draw_header(f, app, header);
     draw_footer(f, app, footer);
 
+    draw_prompt(f, app);
     if app.show_help {
         draw_help(f, app);
     }
@@ -115,8 +117,14 @@ fn log_titles(app: &App) -> (Line<'static>, Option<Line<'static>>) {
             (1, None) => "1 match".to_string(),
             (n, None) => format!("{n} matches"),
         };
+        // Dimmed while the highlights are hidden (esc); n / N show them again
+        let (query_style, count) = if app.search_hidden {
+            (Style::new().fg(DIM), "hidden".to_string())
+        } else {
+            (Style::new().fg(YELLOW), count)
+        };
         Line::from(vec![
-            Span::styled(format!(" /{}", search.label()), Style::new().fg(YELLOW)),
+            Span::styled(format!(" /{}", search.label()), query_style),
             Span::styled(format!("  {count} "), Style::new().fg(DIM)),
         ])
         .right_aligned()
@@ -195,7 +203,7 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         preview = Matcher::new(app.editor.text(), false);
         preview.as_ref()
     } else {
-        app.search.as_ref()
+        app.search.as_ref().filter(|_| !app.search_hidden)
     };
 
     let rows = layout_rows(app, highlight, height);
@@ -310,63 +318,120 @@ fn key_hints(keys: &[(&str, &str)]) -> Vec<Span<'static>> {
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
-    let (prompt, hints): (&str, &[(&str, &str)]) = match app.input_mode {
-        InputMode::Normal => {
-            let line = match &app.status_message {
-                Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
-                None => {
-                    // Ordered by importance so narrow terminals clip the least useful
-                    let mut spans = vec![Span::raw(" ")];
-                    spans.extend(key_hints(&[
-                        ("q", "quit"),
-                        ("?", "help"),
-                        ("/", "search"),
-                        ("&", "filter"),
-                        ("n/N", "next/prev"),
-                        ("f", "follow"),
-                        ("w", "wrap"),
-                        ("#", "numbers"),
-                        (":", "line"),
-                    ]));
-                    Line::from(spans)
-                }
-            };
-            f.render_widget(line, area);
-            return;
+    let line = match &app.status_message {
+        Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
+        None => {
+            // Ordered by importance so narrow terminals clip the least useful
+            let mut spans = vec![Span::raw(" ")];
+            spans.extend(key_hints(&[
+                ("q", "quit"),
+                ("?", "help"),
+                ("/", "search"),
+                ("&", "filter"),
+                ("n/N", "next/prev"),
+                ("f", "follow"),
+                ("w", "wrap"),
+                ("#", "numbers"),
+                (":", "line"),
+            ]));
+            Line::from(spans)
         }
+    };
+    f.render_widget(line, area);
+}
+
+/// The search / filter / go-to prompt: a small input box near the top of the
+/// screen (like snacks.nvim's input), the same in track, monitor and git-graph.
+fn draw_prompt(f: &mut Frame, app: &App) {
+    let (title, icon, hints): (&str, &str, &[(&str, &str)]) = match app.input_mode {
         InputMode::Search => (
-            " / ",
+            "Search",
+            "\u{f002}",
             &[("enter", "search"), ("↑/↓", "history"), ("esc", "cancel")],
         ),
         InputMode::Filter => (
-            " & ",
-            &[
-                ("enter", "add filter"),
-                ("!pat", "exclude"),
-                ("empty", "clear all"),
-                ("esc", "cancel"),
-            ],
+            "Filter",
+            "\u{f0b0}",
+            &[("enter", "add"), ("!pat", "exclude"), ("empty", "clear all"), ("esc", "cancel")],
         ),
-        InputMode::Goto => (" line: ", &[("enter", "jump"), ("esc", "cancel")]),
+        InputMode::Goto => ("Go to line", "#", &[("enter", "jump"), ("esc", "cancel")]),
+        InputMode::Normal => return,
     };
+    let info = match (app.input_mode, app.preview_count) {
+        (InputMode::Search, Some(0)) => Some(Span::styled("no match", Style::new().fg(RED))),
+        (InputMode::Search, Some(1)) => Some(Span::styled("1 match", Style::new().fg(DIM))),
+        (InputMode::Search, Some(n)) => Some(Span::styled(format!("{n} matches"), Style::new().fg(DIM))),
+        _ => None,
+    };
+    draw_input(f, title, icon, app.editor.text(), app.editor.cursor(), info, hints);
+}
 
-    // Input with a block cursor at the editing position
-    let text = app.editor.text();
-    let (before, after) = text.split_at(app.editor.cursor());
+/// A one-line input box: rounded border, centered title, icon, block cursor,
+/// optional info on the right and key hints in the bottom border.
+fn draw_input(
+    f: &mut Frame,
+    title: &str,
+    icon: &str,
+    text: &str,
+    cursor: usize,
+    info: Option<Span<'static>>,
+    hints: &[(&str, &str)],
+) {
+    let full = f.area();
+    let width = full.width.saturating_sub(4).min(60);
+    if width < 10 || full.height < 3 {
+        return;
+    }
+    let area = Rect {
+        x: full.x + (full.width - width) / 2,
+        y: full.y + 2.min(full.height - 3),
+        width,
+        height: 3,
+    };
+    let mut hint_spans = vec![Span::raw(" ")];
+    for (i, (k, v)) in hints.iter().enumerate() {
+        if i > 0 {
+            hint_spans.push(Span::styled(" · ", Style::new().fg(DIM)));
+        }
+        hint_spans.push(Span::styled(k.to_string(), Style::new().fg(ACCENT)));
+        hint_spans.push(Span::styled(format!(" {v}"), Style::new().fg(DIM)));
+    }
+    hint_spans.push(Span::raw(" "));
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(ACCENT))
+        .title(Line::styled(format!(" {title} "), Style::new().fg(ACCENT)).centered())
+        .title_bottom(Line::from(hint_spans).centered());
+    let inner = block.inner(area);
+    f.render_widget(Clear, area);
+    f.render_widget(block, area);
+
+    let info_width = info.as_ref().map_or(0, |s| s.width() as u16 + 1);
+    let [input, info_area] =
+        Layout::horizontal([Constraint::Min(1), Constraint::Length(info_width)]).areas(inner);
+    // Keep the cursor in view: drop characters from the start of long input
+    let room = (input.width as usize).saturating_sub(4);
+    let (mut before, after) = text.split_at(cursor);
+    while Line::raw(before).width() > room {
+        let mut chars = before.chars();
+        chars.next();
+        before = chars.as_str();
+    }
     let mut after_chars = after.chars();
-    let cursor_char = after_chars.next();
-    let mut spans = vec![
-        Span::styled(prompt, Style::new().fg(ACCENT)),
+    let spans = vec![
+        Span::styled(format!(" {icon} "), Style::new().fg(ACCENT)),
         Span::raw(before.to_string()),
-        match cursor_char {
+        match after_chars.next() {
             Some(c) => Span::styled(c.to_string(), Style::new().reversed()),
             None => Span::styled("█", Style::new().fg(ACCENT)),
         },
         Span::raw(after_chars.as_str().to_string()),
-        Span::raw("   "),
     ];
-    spans.extend(key_hints(hints));
-    f.render_widget(Line::from(spans), area);
+    f.render_widget(Line::from(spans), input);
+    if let Some(info) = info {
+        f.render_widget(Line::from(info).right_aligned(), info_area);
+    }
 }
 
 const HELP_ROWS: &[(&str, &str)] = &[
@@ -384,12 +449,12 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("H/L", "scroll sideways half a page"),
     ("home/end", "line start / end of the longest visible line"),
     ("Search & filter", ""),
-    ("/", "search: regex, smart case, highlighted while typing"),
-    ("n / N", "next / previous match (from the screen after scrolling)"),
+    ("/", "search: regex, smart case; jumps while typing"),
+    ("n / N", "next / previous match; shows hidden highlights"),
     ("&", "add a filter: show only matching lines (filters stack)"),
     ("& !pattern", "add an exclude filter: hide matching lines"),
     ("& enter (empty)", "clear all filters"),
-    ("esc", "clear the search, then remove the last filter"),
+    ("esc", "hide search highlights, then remove the last filter"),
     ("Prompts", ""),
     ("←/→ home/end ctrl-a/e", "move the cursor"),
     ("ctrl-u / ctrl-w", "delete to start / previous word"),

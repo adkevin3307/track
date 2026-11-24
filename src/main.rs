@@ -473,6 +473,15 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
 }
 
 fn handle_prompt_key(app: &mut App, key: KeyEvent) {
+    let before = app.editor.text().to_string();
+    edit_prompt(app, key);
+    // Searching while typing: highlight and jump to the first match
+    if app.input_mode == InputMode::Search && app.editor.text() != before {
+        app.preview_search();
+    }
+}
+
+fn edit_prompt(app: &mut App, key: KeyEvent) {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
         KeyCode::Esc => app.cancel_input(),
