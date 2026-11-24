@@ -12,17 +12,19 @@ any configuration.
 > assistants implemented it, checked it, and committed each change.
 
 ```
- TRACK  [app.log] FOLLOWING [Filter: !health (8 lines)] [Search: error (1/2 matches)]
-  1 │ 2026-11-24 10:00:01 INFO  api     server listening on 0.0.0.0:8080
-  2 │ 2026-11-24 10:00:02 INFO  db      connected to postgres://db:5432/app (pool=16)
-  4 │ 2026-11-24 10:00:07 WARN  worker  job 4812 retrying (attempt 2/5): upstream timeout after 30s
-  5 │ 2026-11-24 10:00:09 INFO  api     POST /orders 201 18ms user=1042 items=3 total=59.90
-  6 │ 2026-11-24 10:00:11 ERROR worker  job 4812 failed: connection reset by peer (upstream=payments
-  7 │ 2026-11-24 10:00:12 INFO  api     GET /orders/88 200 4ms
-  8 │ 2026-11-24 10:00:15 WARN  db      slow query 1.2s: SELECT * FROM orders WHERE status = 'pendin
- 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443
-
- q:quit ?:help /:search &:filter f:follow w:wrap #:numbers ::goto m:mouse h/j/k/l:move
+ track  app.log  following                                                             1-8/8 · 100%
+╭ Log  filter: !health  8 of 10 lines ──────────────────────────────────────────────── /error  1/2 ╮
+│  1 │ 2026-11-24 10:00:01 INFO  api     server listening on 0.0.0.0:8080                          │
+│  2 │ 2026-11-24 10:00:02 INFO  db      connected to postgres://db:5432/app (pool=16)             │
+│  4 │ 2026-11-24 10:00:07 WARN  worker  job 4812 retrying (attempt 2/5): upstream timeout after 30│
+│  5 │ 2026-11-24 10:00:09 INFO  api     POST /orders 201 18ms user=1042 items=3 total=59.90       │
+│  6 │ 2026-11-24 10:00:11 ERROR worker  job 4812 failed: connection reset by peer (upstream=paymen│
+│  7 │ 2026-11-24 10:00:12 INFO  api     GET /orders/88 200 4ms                                    │
+│  8 │ 2026-11-24 10:00:15 WARN  db      slow query 1.2s: SELECT * FROM orders WHERE status = 'pend│
+│ 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443          │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ q quit  ? help  / search  & filter  n/N next/prev  f follow  w wrap  # numbers  : line  m mouse
 ```
 
 *(`track -N app.log` with the filter `&!health` and the search `/error`.)*
@@ -34,7 +36,7 @@ any configuration.
   an unfinished line (a prompt, or a progress bar redrawn with `\r`) is shown
   live and updated in place. See [Piping](#piping).
 - **Follow mode, like `tail -F`.** Files and pipes are followed by default.
-  Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or
+  Scrolling up pauses (`paused · N below`); scrolling back to the bottom or
   pressing `f`/`G` resumes. Truncated and rotated log files are detected and
   reopened.
 - **Horizontal scrolling** through wide lines, measured in display columns
@@ -132,21 +134,24 @@ my-command 2>&1 | track          # stdout and stderr
 ## Layout
 
 ```
- TRACK  [source] FOLLOWING  [Wrap:OFF] [#]  [Filter: …] [Search: …]   Col: 0 │ 1-40 of 812 (5%)
-  1 │ log lines, scrolled sideways or wrapped
-  2 │ (line numbers in the gutter with #)
-  …
- key hints, the search / filter / go-to prompt, or a status message
+ track  source  following · wrap · mouse                              1-40/812 · 5%
+╭ Log  filter: … & …  N of M lines  ← col C ──────────────────── /search  1/12 ╮
+│  1 │ log lines, scrolled sideways or wrapped                                  │
+│  2 │ (line numbers in the gutter with #)                                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ key hints, the / & : prompts, or a status message
 ```
 
-The header shows the input, the follow state (`FOLLOWING`, `PAUSED`,
-`[EOF]`), the display flags, the active filters and search, and the position.
-On narrow terminals the flags and then the position are dropped first.
+The header shows the input, the follow state (`following`, `paused · N below`
+or `end of input`), the wrap and mouse flags, and the visible range. The log
+panel's title shows the active filters and how many lines they keep, the
+column when scrolled sideways, and, on the right, the search and the current
+match.
 
 ## Keys
 
-Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit;
-`esc`, `q` or `?` close it).
+Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit; any
+other key closes it).
 
 **Navigation**
 
@@ -154,7 +159,8 @@ Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit;
 |---|---|
 | `j`/`k`, `↓`/`↑` | Scroll one line (one screen row in wrap mode); scrolling up pauses follow |
 | `ctrl-↓`/`ctrl-↑` | Scroll five lines |
-| `ctrl-d`/`ctrl-u`, `PgDn`/`PgUp`, `space`/`b` | Scroll one page |
+| `ctrl-d`/`ctrl-u` | Half page |
+| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b`, `space`/`b` | Full page |
 | `g` / `G`, `ctrl-home` / `ctrl-end` | Top / bottom (bottom resumes follow) |
 | `:` | Go to line number |
 | `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
@@ -186,7 +192,7 @@ Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit;
 
 | Key | Action |
 |---|---|
-| `f` / `F` | Toggle follow mode (`FOLLOWING` ↔ `PAUSED`) |
+| `f` / `F` | Toggle follow mode (`following` ↔ `paused`) |
 | `w` | Toggle soft wrap |
 | `#` | Toggle line numbers |
 | `m` | Toggle mouse capture (wheel scrolling ↔ terminal text selection) |

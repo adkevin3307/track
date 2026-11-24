@@ -295,15 +295,15 @@ fn handle_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bo
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
+        // Scroll when the help doesn't fit; any other key closes it
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => app.show_help = false,
             KeyCode::Up | KeyCode::Char('k') => app.help_scroll = app.help_scroll.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => app.help_scroll += 1,
             KeyCode::PageUp => app.help_scroll = app.help_scroll.saturating_sub(10),
             KeyCode::PageDown | KeyCode::Char(' ') => app.help_scroll += 10,
             KeyCode::Char('g') | KeyCode::Home => app.help_scroll = 0,
             KeyCode::Char('G') | KeyCode::End => app.help_scroll = usize::MAX,
-            _ => {}
+            _ => app.show_help = false,
         }
         return Ok(false);
     }
@@ -327,8 +327,10 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
             match c {
                 'c' => return Ok(true),
                 'l' => terminal.clear()?,
-                'u' => app.scroll_page_up(),
-                'd' => app.scroll_page_down(),
+                'u' => app.scroll_half_page_up(),
+                'd' => app.scroll_half_page_down(),
+                'b' => app.scroll_page_up(),
+                'f' => app.scroll_page_down(),
                 _ => {}
             }
         }

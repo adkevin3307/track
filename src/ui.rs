@@ -1,131 +1,133 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    Frame,
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::app::{App, InputMode};
 use crate::layout::{highlight_line, slice_line, wrap_line};
 use crate::matcher::Matcher;
 
+// Fixed RGB colors (not terminal theme colors, which vary) that stay legible on
+// dark backgrounds. The log text itself keeps its own ANSI colors.
+const ACCENT: Color = Color::Cyan;
+const DIM: Color = Color::DarkGray;
+const GREEN: Color = Color::Rgb(102, 187, 102);
+const YELLOW: Color = Color::Rgb(204, 178, 85);
+const MAGENTA: Color = Color::Rgb(200, 115, 200);
+
 pub fn render(f: &mut Frame, app: &mut App) {
-    let size = f.area();
-    if size.width == 0 || size.height == 0 {
+    let area = f.area();
+    if area.width == 0 || area.height == 0 {
         return;
     }
+    let [header, main, footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(1),
+    ])
+    .areas(area);
 
-    // Top status (1 row), Main viewport (min 1), Bottom bar (1 row)
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(size);
-
-    // The viewport goes first: it records which lines are visible for the header
-    render_main_viewport(f, app, chunks[1]);
-    render_header(f, app, chunks[0]);
-    render_footer(f, app, chunks[2]);
+    // The log goes first: it records which lines are visible for the header
+    draw_log(f, app, main);
+    draw_header(f, app, header);
+    draw_footer(f, app, footer);
 
     if app.show_help {
-        render_help_modal(f, app, size);
+        draw_help(f, app);
     }
 }
 
-fn render_header(f: &mut Frame, app: &App, area: Rect) {
-    let total_lines = app.total_display_lines();
-    let current_top = if total_lines == 0 { 0 } else { app.visible_start + 1 };
-    let current_bottom = app.visible_end;
-    let pct = (current_bottom * 100).checked_div(total_lines).unwrap_or(100);
+fn panel<'a>(title: impl Into<Line<'a>>, focused: bool) -> Block<'a> {
+    Block::new()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::new().fg(if focused { ACCENT } else { DIM }))
+        .title(title)
+}
 
-    let follow_span = if app.eof && app.is_at_bottom() {
-        Span::styled(" [EOF] ", Style::default().fg(Color::Cyan).dim())
-    } else if app.following {
-        Span::styled(" FOLLOWING ", Style::default().fg(Color::Green))
-    } else {
-        let below = app.lines_below();
-        let text = if below > 0 {
-            format!(" PAUSED (+{below} below) ")
-        } else {
-            " PAUSED ".to_string()
-        };
-        Span::styled(text, Style::default().fg(Color::Yellow))
-    };
-
-    let flag_color = |on: bool| Style::default().fg(if on { Color::Cyan } else { Color::DarkGray });
-    let flag_spans = vec![
-        Span::styled(
-            if app.wrap { "[Wrap:ON] " } else { "[Wrap:OFF] " },
-            flag_color(app.wrap),
-        ),
-        Span::styled("[#] ", flag_color(app.show_line_numbers)),
+fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+    let mut spans = vec![
+        Span::styled(" track ", Style::new().bg(ACCENT).fg(Color::Black)),
+        Span::raw(" "),
+        Span::raw(app.input_source_name.clone()),
     ];
+    if app.eof && app.is_at_bottom() {
+        spans.push(Span::styled("  end of input", Style::new().fg(DIM)));
+    } else if app.following {
+        spans.push(Span::styled("  following", Style::new().fg(GREEN)));
+    } else {
+        spans.push(Span::styled("  paused", Style::new().fg(YELLOW)));
+        let below = app.lines_below();
+        if below > 0 {
+            spans.push(Span::styled(format!(" · {below} below"), Style::new().fg(DIM)));
+        }
+    }
+    let flags: Vec<&str> = [(app.wrap, "wrap"), (app.mouse_capture, "mouse")]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect();
+    if !flags.is_empty() {
+        spans.push(Span::styled(format!("  {}", flags.join(" · ")), Style::new().fg(DIM)));
+    }
 
-    let mut query_spans = Vec::new();
+    let total = app.total_display_lines();
+    let position = if total == 0 {
+        "0 lines ".to_string()
+    } else {
+        let pct = (app.visible_end * 100).checked_div(total).unwrap_or(100);
+        format!("{}-{}/{} · {pct}% ", app.visible_start + 1, app.visible_end, total)
+    };
+    let used: usize = spans.iter().map(Span::width).sum();
+    let width = area.width as usize;
+    if used + position.chars().count() < width {
+        spans.push(Span::raw(" ".repeat(width - used - position.chars().count())));
+        spans.push(Span::styled(position, Style::new().fg(DIM)));
+    }
+    f.render_widget(Line::from(spans), area);
+}
+
+/// Panel titles: filters and horizontal position on the left, the search on the right.
+fn log_titles(app: &App) -> (Line<'static>, Option<Line<'static>>) {
+    let mut left = vec![Span::styled(" Log", Style::new().fg(ACCENT))];
     if !app.filters.is_empty() {
         let labels: Vec<String> = app.filters.iter().map(Matcher::label).collect();
-        query_spans.push(Span::styled(
-            format!("[Filter: {} ({} lines)] ", labels.join(" & "), total_lines),
-            Style::default().fg(Color::Magenta),
+        left.push(Span::styled(
+            format!("  filter: {}", labels.join(" & ")),
+            Style::new().fg(MAGENTA),
+        ));
+        left.push(Span::styled(
+            format!("  {} of {} lines", app.total_display_lines(), app.lines.len()),
+            Style::new().fg(DIM),
         ));
     }
-    if let Some(search) = &app.search {
-        let match_info = if app.search_match_indices.is_empty() {
-            "0 matches".to_string()
-        } else {
-            let curr = app.current_match_idx.map(|i| i + 1).unwrap_or(0);
-            format!("{}/{} matches", curr, app.search_match_indices.len())
+    if !app.wrap && app.horizontal_offset > 0 {
+        left.push(Span::styled(
+            format!("  ← col {}", app.horizontal_offset + 1),
+            Style::new().fg(DIM),
+        ));
+    }
+    left.push(Span::raw(" "));
+
+    let right = app.search.as_ref().map(|search| {
+        let count = match (app.search_match_indices.len(), app.current_match_idx) {
+            (0, _) => "no matches".to_string(),
+            (n, Some(i)) => format!("{}/{n}", i + 1),
+            (1, None) => "1 match".to_string(),
+            (n, None) => format!("{n} matches"),
         };
-        query_spans.push(Span::styled(
-            format!("[Search: {} ({})] ", search.label(), match_info),
-            Style::default().fg(Color::Yellow),
-        ));
-    }
-
-    let col_info = if app.wrap {
-        "Col: - (wrap)".to_string()
-    } else {
-        format!("Col: {}", app.horizontal_offset)
-    };
-    let line_info = if total_lines == 0 {
-        "0 lines".to_string()
-    } else {
-        format!("{}-{} of {} ({}%)", current_top, current_bottom, total_lines, pct)
-    };
-    let right_text = format!("{} │ {} ", col_info, line_info);
-
-    let mut left_spans = vec![
-        Span::styled(" TRACK ", Style::default().fg(Color::Black).bg(Color::White)),
-        Span::raw(" "),
-        Span::styled(format!("[{}]", app.input_source_name), Style::default().fg(Color::White)),
-        follow_span,
-    ];
-
-    // On narrow terminals drop the least important parts first: flags, then position
-    let width_of = |spans: &[Span]| spans.iter().map(Span::width).sum::<usize>();
-    let total_width = area.width as usize;
-    let essential = width_of(&left_spans) + width_of(&query_spans);
-    let flags_fit = essential + width_of(&flag_spans) + right_text.chars().count() <= total_width;
-    if flags_fit {
-        left_spans.extend(flag_spans);
-    }
-    left_spans.extend(query_spans);
-
-    let left_len = width_of(&left_spans);
-    let right_len = right_text.chars().count();
-    if left_len + right_len <= total_width {
-        left_spans.push(Span::raw(" ".repeat(total_width - left_len - right_len)));
-        left_spans.push(Span::styled(right_text, Style::default().fg(Color::DarkGray)));
-    }
-
-    f.render_widget(Paragraph::new(Line::from(left_spans)), area);
+        Line::from(vec![
+            Span::styled(format!(" /{}", search.label()), Style::new().fg(YELLOW)),
+            Span::styled(format!("  {count} "), Style::new().fg(DIM)),
+        ])
+        .right_aligned()
+    });
+    (Line::from(left), right)
 }
 
-/// One screen row of the main viewport.
+/// One screen row of the log.
 struct Row {
     view_index: usize,
     /// First row of its log line (continuation rows of wrapped lines get no number).
@@ -133,26 +135,32 @@ struct Row {
     line: Line<'static>,
 }
 
-fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
-    if area.height == 0 || area.width == 0 {
+fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
+    let (title, search_title) = log_titles(app);
+    let mut block = panel(title, true);
+    if let Some(search_title) = search_title {
+        block = block.title(search_title);
+    }
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    if inner.height == 0 || inner.width == 0 {
         return;
     }
 
     let total_lines = app.total_display_lines();
-    let height = area.height as usize;
+    let height = inner.height as usize;
     app.viewport_height = height;
 
     let (gutter_area, content_area) = if app.show_line_numbers {
         let max_num = (app.dropped_lines + app.lines.len()).max(1);
         let digits = max_num.to_string().len().max(3);
-        let gutter_width = (digits + 3) as u16; // e.g. " 1234 │ "
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(gutter_width), Constraint::Min(1)])
-            .split(area);
-        (Some((chunks[0], digits)), chunks[1])
+        let gutter_width = (digits + 3) as u16; // e.g. "1234 │ "
+        let [gutter, content] =
+            Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(1)])
+                .areas(inner);
+        (Some((gutter, digits)), content)
     } else {
-        (None, area)
+        (None, inner)
     };
     app.viewport_width = content_area.width as usize;
 
@@ -160,18 +168,15 @@ fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
         app.visible_start = 0;
         app.visible_end = 0;
         let empty_msg = if app.eof {
-            "--- End of input (No lines) ---"
+            "end of input (no lines)"
         } else if !app.filters.is_empty() {
-            "No lines match the filter (Esc removes it)"
+            "no lines match the filter (esc removes it)"
         } else {
-            "Waiting for log input... (press ? for help, q to quit)"
+            "waiting for input…  (? help, q quit)"
         };
-        let p = Paragraph::new(Line::from(vec![Span::styled(
-            empty_msg,
-            Style::default().fg(Color::DarkGray).italic(),
-        )]))
-        .alignment(Alignment::Center);
-        f.render_widget(p, area);
+        let p = Paragraph::new(Line::styled(empty_msg, Style::new().fg(DIM)))
+            .alignment(Alignment::Center);
+        f.render_widget(p, inner);
         return;
     }
 
@@ -208,12 +213,15 @@ fn render_main_viewport(f: &mut Frame, app: &mut App, area: Rect) {
                 } else {
                     String::new()
                 };
-                let style = if row.first && current_match_line == Some(row.view_index) {
-                    Style::default().fg(Color::Yellow)
+                let num_style = if row.first && current_match_line == Some(row.view_index) {
+                    Style::new().fg(YELLOW)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::new().fg(DIM)
                 };
-                Line::from(Span::styled(format!("{:>width$} │", num, width = digits), style))
+                Line::from(vec![
+                    Span::styled(format!("{num:>digits$}"), num_style),
+                    Span::styled(" │", Style::new().fg(DIM)),
+                ])
             })
             .collect();
         f.render_widget(Paragraph::new(gutter_lines), g_area);
@@ -268,157 +276,148 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
     rows
 }
 
-fn key_hint(key: &'static str, desc: &'static str) -> [Span<'static>; 2] {
-    [
-        Span::styled(key, Style::default().fg(Color::White).bold()),
-        Span::styled(desc, Style::default().fg(Color::DarkGray)),
-    ]
+/// `key desc  key desc` hints: keys in the accent color, descriptions dimmed.
+fn key_hints(keys: &[(&str, &str)]) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (k, v) in keys {
+        spans.push(Span::styled(k.to_string(), Style::new().fg(ACCENT)));
+        spans.push(Span::styled(format!(" {v}  "), Style::new().fg(DIM)));
+    }
+    spans
 }
 
-fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    let (label, color, hint) = match app.input_mode {
+fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+    let (prompt, hints): (&str, &[(&str, &str)]) = match app.input_mode {
         InputMode::Normal => {
-            let line = if let Some(msg) = &app.status_message {
-                Line::from(Span::styled(format!(" {msg}"), Style::default().fg(Color::Yellow)))
-            } else {
-                // Ordered by importance so clipping on narrow terminals drops the least useful
-                let hints = [
-                    key_hint(" q", ":quit "),
-                    key_hint("?", ":help "),
-                    key_hint("/", ":search "),
-                    key_hint("&", ":filter "),
-                    key_hint("f", ":follow "),
-                    key_hint("w", ":wrap "),
-                    key_hint("#", ":numbers "),
-                    key_hint(":", ":goto "),
-                    key_hint("m", ":mouse "),
-                    key_hint("h/j/k/l", ":move"),
-                ];
-                Line::from(hints.into_iter().flatten().collect::<Vec<_>>())
+            let line = match &app.status_message {
+                Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
+                None => {
+                    // Ordered by importance so narrow terminals clip the least useful
+                    let mut spans = vec![Span::raw(" ")];
+                    spans.extend(key_hints(&[
+                        ("q", "quit"),
+                        ("?", "help"),
+                        ("/", "search"),
+                        ("&", "filter"),
+                        ("n/N", "next/prev"),
+                        ("f", "follow"),
+                        ("w", "wrap"),
+                        ("#", "numbers"),
+                        (":", "line"),
+                        ("m", "mouse"),
+                    ]));
+                    Line::from(spans)
+                }
             };
-            f.render_widget(Paragraph::new(line), area);
+            f.render_widget(line, area);
             return;
         }
-        InputMode::Search => (" Search: /", Color::Yellow, "  [Enter: search, Esc: cancel, ↑↓: history]"),
-        InputMode::Filter => (" Filter: &", Color::Magenta, "  [Enter: add filter, !pat: exclude, empty: clear all]"),
-        InputMode::Goto => (" Go to line: ", Color::Cyan, "  [Enter: jump, Esc: cancel]"),
+        InputMode::Search => (
+            " / ",
+            &[("enter", "search"), ("↑/↓", "history"), ("esc", "cancel")],
+        ),
+        InputMode::Filter => (
+            " & ",
+            &[
+                ("enter", "add filter"),
+                ("!pat", "exclude"),
+                ("empty", "clear all"),
+                ("esc", "cancel"),
+            ],
+        ),
+        InputMode::Goto => (" line: ", &[("enter", "jump"), ("esc", "cancel")]),
     };
 
-    // Prompt with a block cursor at the editing position
+    // Input with a block cursor at the editing position
     let text = app.editor.text();
     let (before, after) = text.split_at(app.editor.cursor());
     let mut after_chars = after.chars();
     let cursor_char = after_chars.next();
-    let input_style = Style::default().fg(Color::White).bold();
-    let content = vec![
-        Span::styled(label, Style::default().fg(color).bold()),
-        Span::styled(before.to_string(), input_style),
+    let mut spans = vec![
+        Span::styled(prompt, Style::new().fg(ACCENT)),
+        Span::raw(before.to_string()),
         match cursor_char {
-            Some(c) => Span::styled(c.to_string(), input_style.reversed()),
-            None => Span::styled("█", Style::default().fg(color)),
+            Some(c) => Span::styled(c.to_string(), Style::new().reversed()),
+            None => Span::styled("█", Style::new().fg(ACCENT)),
         },
-        Span::styled(after_chars.as_str().to_string(), input_style),
-        Span::styled(hint, Style::default().fg(Color::DarkGray)),
+        Span::raw(after_chars.as_str().to_string()),
+        Span::raw("   "),
     ];
-    f.render_widget(Paragraph::new(Line::from(content)), area);
+    spans.extend(key_hints(hints));
+    f.render_widget(Line::from(spans), area);
 }
 
-const HELP_SECTIONS: &[(&str, &[(&str, &str)])] = &[
-    ("NAVIGATION", &[
-        ("Left / h", "Scroll left (4 columns)"),
-        ("Right / l", "Scroll right (4 columns)"),
-        ("Ctrl+Left / H / [", "Fast scroll left (20 columns)"),
-        ("Ctrl+Right / L / ]", "Fast scroll right (20 columns)"),
-        ("Home / ^", "Scroll to start of line (column 0)"),
-        ("End / $", "Scroll to end of the longest visible line"),
-        ("Up / k", "Scroll up 1 line (pauses follow mode)"),
-        ("Down / j", "Scroll down 1 line"),
-        ("Ctrl+Up / Ctrl+Down", "Fast scroll up / down (5 lines)"),
-        ("PageUp / Ctrl+U / b", "Scroll up 1 page"),
-        ("PageDn / Ctrl+D / Space", "Scroll down 1 page"),
-        ("g / Ctrl+Home", "Jump to top of log (first line)"),
-        ("G / Ctrl+End", "Jump to bottom & resume live follow"),
-        (":", "Go to line number"),
-    ]),
-    ("MODES & DISPLAY", &[
-        ("f / F", "Toggle follow mode (FOLLOWING / PAUSED)"),
-        ("w", "Toggle soft line wrap (wrap vs horizontal scroll)"),
-        ("#", "Toggle line numbers gutter (pinned left)"),
-        ("m", "Toggle mouse capture (wheel scroll vs text selection)"),
-        ("Ctrl+L", "Redraw the screen"),
-    ]),
-    ("SEARCH & FILTER", &[
-        ("/", "Search (regex; case-insensitive unless it has uppercase)"),
-        ("n / N", "Jump to next / previous search match"),
-        ("&", "Add a filter: show only matching lines (filters stack)"),
-        ("& !pattern", "Add an exclude filter: hide matching lines"),
-        ("& (empty)", "Clear all filters"),
-        ("Esc", "Clear the search, then remove the last filter"),
-    ]),
-    ("PROMPT EDITING", &[
-        ("Left / Right", "Move the cursor (Home / End, Ctrl+A / Ctrl+E)"),
-        ("Ctrl+U / Ctrl+W", "Delete to start of line / delete previous word"),
-        ("Up / Down", "Browse search / filter history"),
-        ("Enter / Esc", "Submit / cancel"),
-    ]),
-    ("GENERAL", &[
-        ("q / Ctrl+C", "Quit track"),
-        ("?", "Show / hide this help"),
-    ]),
+const HELP_ROWS: &[(&str, &str)] = &[
+    ("Navigation", ""),
+    ("j/k ↑/↓", "scroll one line (one row when wrapping)"),
+    ("ctrl-↑/↓", "scroll five lines"),
+    ("ctrl-d/u", "half page"),
+    ("PgDn/PgUp, ctrl-f/b", "full page (also space / b)"),
+    ("g/G", "top / bottom (bottom resumes following)"),
+    (":", "go to line number"),
+    ("h/l ←/→", "scroll sideways 4 columns"),
+    ("H/L [/] ctrl-←/→", "scroll sideways 20 columns"),
+    ("^/$ home/end", "line start / end of the longest visible line"),
+    ("Search & filter", ""),
+    ("/", "search: regex, smart case, highlighted while typing"),
+    ("n / N", "next / previous match (from the screen after scrolling)"),
+    ("&", "add a filter: show only matching lines (filters stack)"),
+    ("& !pattern", "add an exclude filter: hide matching lines"),
+    ("& enter (empty)", "clear all filters"),
+    ("esc", "clear the search, then remove the last filter"),
+    ("Prompts", ""),
+    ("←/→ home/end ctrl-a/e", "move the cursor"),
+    ("ctrl-u / ctrl-w", "delete to start / previous word"),
+    ("↑/↓", "search / filter history"),
+    ("enter / esc", "submit / cancel"),
+    ("Display", ""),
+    ("f", "toggle following"),
+    ("w", "toggle soft wrap"),
+    ("#", "toggle line numbers"),
+    ("m", "toggle mouse capture (wheel scrolling vs text selection)"),
+    ("ctrl-l", "redraw the screen"),
+    ("General", ""),
+    ("q, ctrl-c", "quit"),
 ];
 
-fn help_lines() -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    for (i, (title, keys)) in HELP_SECTIONS.iter().enumerate() {
-        if i > 0 {
-            lines.push(Line::from(""));
-        }
-        lines.push(Line::from(Span::styled(
-            format!(" {title}"),
-            Style::default().fg(Color::Cyan).bold(),
-        )));
-        for (key, desc) in keys.iter() {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {key:<24}"), Style::default().fg(Color::White).bold()),
-                Span::styled(*desc, Style::default().fg(Color::Gray)),
-            ]));
-        }
-    }
-    lines
+fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    let w = w.min(area.width.saturating_sub(2));
+    let h = h.min(area.height.saturating_sub(2));
+    Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    )
 }
 
-fn render_help_modal(f: &mut Frame, app: &mut App, area: Rect) {
-    let lines = help_lines();
-    let modal_width = 84.min(area.width.saturating_sub(4));
-    let modal_height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
-
-    let x = (area.width.saturating_sub(modal_width)) / 2;
-    let y = (area.height.saturating_sub(modal_height)) / 2;
-    let modal_area = Rect::new(x, y, modal_width, modal_height);
-
-    // Scrollable when the terminal is too short to show everything
-    let inner_height = modal_height.saturating_sub(2) as usize;
-    let max_scroll = lines.len().saturating_sub(inner_height);
-    app.help_scroll = app.help_scroll.min(max_scroll);
-    let footer = if max_scroll > 0 {
-        " j/k to scroll · Esc, q or ? to close "
+fn draw_help(f: &mut Frame, app: &mut App) {
+    let lines: Vec<Line> = HELP_ROWS
+        .iter()
+        .map(|(k, v)| {
+            if v.is_empty() {
+                Line::styled(format!(" {k}"), Style::new().fg(ACCENT))
+            } else {
+                Line::from(vec![
+                    Span::styled(format!("   {k:<24}"), Style::new().fg(YELLOW)),
+                    Span::raw(*v),
+                ])
+            }
+        })
+        .collect();
+    let area = centered(f.area(), 88, lines.len() as u16 + 2);
+    let max = lines.len().saturating_sub(area.height.saturating_sub(2) as usize);
+    app.help_scroll = app.help_scroll.min(max);
+    let title = if max > 0 {
+        " Help — j/k scroll, any other key closes "
     } else {
-        " Esc, q or ? to close "
+        " Help — any key to close "
     };
-
-    f.render_widget(Clear, modal_area);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Cyan))
-        .title(" Track - Keyboard Shortcuts ")
-        .title_alignment(Alignment::Center)
-        .title_style(Style::default().fg(Color::Cyan).bold())
-        .title_bottom(Line::from(Span::styled(footer, Style::default().fg(Color::Yellow))).centered());
-
-    let p = Paragraph::new(lines)
-        .block(block)
-        .scroll((app.help_scroll.min(u16::MAX as usize) as u16, 0));
-    f.render_widget(p, modal_area);
+    f.render_widget(Clear, area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .scroll((app.help_scroll.min(u16::MAX as usize) as u16, 0))
+            .block(panel(Span::styled(title, Style::new().fg(ACCENT)), true)),
+        area,
+    );
 }

@@ -426,6 +426,14 @@ impl App {
         }
     }
 
+    pub fn scroll_half_page_up(&mut self) {
+        self.scroll_up((self.viewport_height / 2).max(1));
+    }
+
+    pub fn scroll_half_page_down(&mut self) {
+        self.scroll_down((self.viewport_height / 2).max(1));
+    }
+
     pub fn scroll_page_up(&mut self) {
         let page = self.viewport_height.saturating_sub(2).max(1);
         self.scroll_up(page);
