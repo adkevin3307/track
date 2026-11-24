@@ -364,9 +364,9 @@ fn handle_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bo
             KeyCode::Up | KeyCode::Char('k') => app.help_scroll = app.help_scroll.saturating_sub(1),
             KeyCode::Down | KeyCode::Char('j') => app.help_scroll += 1,
             KeyCode::PageUp => app.help_scroll = app.help_scroll.saturating_sub(10),
-            KeyCode::PageDown | KeyCode::Char(' ') => app.help_scroll += 10,
-            KeyCode::Char('g') | KeyCode::Home => app.help_scroll = 0,
-            KeyCode::Char('G') | KeyCode::End => app.help_scroll = usize::MAX,
+            KeyCode::PageDown => app.help_scroll += 10,
+            KeyCode::Char('g') => app.help_scroll = 0,
+            KeyCode::Char('G') => app.help_scroll = usize::MAX,
             _ => app.show_help = false,
         }
         return Ok(false);
@@ -405,10 +405,6 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         (_, KeyCode::Char('q')) => {
             return Ok(true);
         }
-        // Follow mode toggle
-        (_, KeyCode::Char('f')) | (_, KeyCode::Char('F')) => {
-            app.toggle_follow();
-        }
         // Wrap toggle
         (_, KeyCode::Char('w')) => {
             app.toggle_wrap();
@@ -442,12 +438,6 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         }
 
         // Document navigation (Top / Bottom)
-        (m, KeyCode::Home) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_to_top();
-        }
-        (m, KeyCode::End) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_to_end();
-        }
         (_, KeyCode::Char('g')) => {
             app.scroll_to_top();
         }
@@ -476,22 +466,16 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         }
 
         // Vertical scrolling (Up / Down)
-        (m, KeyCode::Up) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_up(5);
-        }
-        (m, KeyCode::Down) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_down(5);
-        }
         (_, KeyCode::Up) | (_, KeyCode::Char('k')) => {
             app.scroll_up(1);
         }
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
             app.scroll_down(1);
         }
-        (_, KeyCode::PageUp) | (_, KeyCode::Char('b')) => {
+        (_, KeyCode::PageUp) => {
             app.scroll_page_up();
         }
-        (_, KeyCode::PageDown) | (_, KeyCode::Char(' ')) => {
+        (_, KeyCode::PageDown) => {
             app.scroll_page_down();
         }
         _ => {}

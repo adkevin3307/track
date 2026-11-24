@@ -267,15 +267,7 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
     f.render_widget(Paragraph::new(content), content_area);
     let visible = app.visible_end - app.visible_start;
-    draw_scroll(
-        f,
-        area,
-        app.vertical_offset,
-        visible,
-        total_lines,
-        app.visible_start + 1,
-        app.visible_end,
-    );
+    draw_scroll(f, area, true, app.vertical_offset, visible, total_lines);
 }
 
 fn styled_line(app: &App, view_index: usize, highlight: Option<&Matcher>) -> Line<'static> {
@@ -356,21 +348,21 @@ fn footer_hints(keys: &[(&str, &str)], width: u16) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A scrollbar on the right border of a panel and the visible range (`first`-`last`
-/// of `total`, 1-based) on its bottom border, the same in track, monitor and
-/// git-graph. Nothing is drawn when everything fits.
+/// A scrollbar on the right border of a panel, the same in track, monitor and
+/// git-graph. It takes the border's color (cyan when the panel is focused) and
+/// is drawn only when the content doesn't fit.
 fn draw_scroll(
     f: &mut Frame,
     panel: Rect,
+    focused: bool,
     offset: usize,
     visible: usize,
     total: usize,
-    first: usize,
-    last: usize,
 ) {
     if total <= visible || panel.height < 3 {
         return;
     }
+    let style = Style::new().fg(if focused { ACCENT } else { DIM });
     let mut state = ScrollbarState::new(total - visible)
         .position(offset)
         .viewport_content_length(visible);
@@ -378,47 +370,35 @@ fn draw_scroll(
         Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .thumb_style(Style::new().fg(ACCENT))
-            .track_style(Style::new().fg(DIM)),
+            .thumb_style(style)
+            .track_style(style),
         panel.inner(Margin {
             vertical: 1,
             horizontal: 0,
         }),
         &mut state,
     );
-    let range = Line::styled(format!(" {first}-{last}/{total} "), Style::new().fg(DIM));
-    let bottom = Rect {
-        y: panel.bottom() - 1,
-        height: 1,
-        ..panel
-    };
-    f.render_widget(
-        range.right_aligned(),
-        bottom.inner(Margin {
-            vertical: 0,
-            horizontal: 1,
-        }),
-    );
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let line = match &app.status_message {
         Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
-        None => footer_hints(
-            &[
-                ("j/k", "scroll"),
+        None => {
+            // While paused, G resumes following (scrolling up pauses it).
+            let mut keys = vec![("j/k", "scroll")];
+            if !app.following && !app.eof {
+                keys.push(("G", "follow"));
+            }
+            keys.extend([
                 ("/", "search"),
                 ("n/N", "next/prev"),
                 ("&", "filter"),
-                (":", "line"),
-                ("f", "follow"),
                 ("w", "wrap"),
-                ("#", "numbers"),
                 ("?", "help"),
                 ("q", "quit"),
-            ],
-            area.width,
-        ),
+            ]);
+            footer_hints(&keys, area.width)
+        }
     };
     f.render_widget(line, area);
 }
@@ -536,10 +516,9 @@ fn draw_input(
 const HELP_ROWS: &[(&str, &str)] = &[
     ("Navigation", ""),
     ("j/k ↑/↓", "scroll one line (one row when wrapping)"),
-    ("ctrl-↑/↓", "scroll five lines"),
     ("ctrl-d/u", "half page"),
-    ("PgDn/PgUp, ctrl-f/b", "full page (also space / b)"),
-    ("g/G", "top / bottom (bottom resumes following)"),
+    ("PgDn/PgUp, ctrl-f/b", "full page"),
+    ("g/G", "top / bottom (G resumes following)"),
     (":", "go to line number"),
     ("mouse wheel", "scroll (ctrl: faster)"),
     (
@@ -566,7 +545,6 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("↑/↓", "search / filter history"),
     ("enter / esc", "submit / cancel"),
     ("Display", ""),
-    ("f", "toggle following"),
     ("w", "toggle soft wrap"),
     ("#", "toggle line numbers"),
     ("ctrl-l", "redraw the screen"),

@@ -544,13 +544,6 @@ impl App {
 
     // ---- Toggles ----
 
-    pub fn toggle_follow(&mut self) {
-        self.following = !self.following;
-        if self.following {
-            self.scroll_to_bottom();
-        }
-    }
-
     pub fn toggle_wrap(&mut self) {
         self.wrap = !self.wrap;
         self.row_offset = 0;
@@ -1140,8 +1133,8 @@ mod tests {
         assert!(!app.following);
         assert_eq!(app.vertical_offset, 0);
 
-        // Toggling follow jumps to bottom
-        app.toggle_follow();
+        // G (scroll to end) jumps to the bottom and resumes follow
+        app.scroll_to_end();
         assert!(app.following);
         assert_eq!(app.vertical_offset, 40);
 

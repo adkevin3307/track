@@ -24,7 +24,7 @@ any configuration.
 │ 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443          │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- j/k scroll  / search  n/N next/prev  & filter  : line  f follow  w wrap  # numbers  ? help  q quit
+ j/k scroll  / search  n/N next/prev  & filter  w wrap  ? help  q quit
 ```
 
 *(`track -N app.log` with the filter `&!health` and the search `/error`.)*
@@ -143,7 +143,7 @@ my-command 2>&1 | track          # stdout and stderr
 ╭ Log  filter: … & …  N of M lines  ← col C ──────────────────── /search  1/12 ╮
 │  1 │ log lines, scrolled sideways or wrapped                                  █
 │  2 │ (line numbers in the gutter with #)                                      ║
-╰─────────────────────────────────────────────────────────────────── 1-40/812 ╯
+╰──────────────────────────────────────────────────────────────────────────────╯
  key hints or a status message (the / & : prompts open in a box at the top)
 ```
 
@@ -151,8 +151,8 @@ The header shows the input, the follow state (`following`, `paused · N below`
 or `end of input`), whether wrapping is on, and how many lines were read. The
 log panel's title shows the active filters and how many lines they keep, the
 column when scrolled sideways, and, on the right, the search and the current
-match. When the lines don't fit, a scrollbar runs down the right border and
-the visible range is on the bottom border, as in monitor and git-graph.
+match. When the lines don't fit, a scrollbar runs down the right border, as in
+monitor and git-graph. While following is paused, the footer shows `G follow`.
 
 ## Keys
 
@@ -164,10 +164,9 @@ other key closes it).
 | Key | Action |
 |---|---|
 | `j`/`k`, `↓`/`↑` | Scroll one line (one screen row in wrap mode); scrolling up pauses follow |
-| `ctrl-↓`/`ctrl-↑` | Scroll five lines |
 | `ctrl-d`/`ctrl-u` | Half page |
-| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b`, `space`/`b` | Full page |
-| `g` / `G`, `ctrl-home` / `ctrl-end` | Top / bottom (bottom resumes follow) |
+| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Full page |
+| `g` / `G` | Top / bottom (`G` resumes following) |
 | `:` | Go to line number |
 | `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
 | `H`/`L` | Scroll sideways half a page |
@@ -200,7 +199,6 @@ other key closes it).
 
 | Key | Action |
 |---|---|
-| `f` / `F` | Toggle follow mode (`following` ↔ `paused`) |
 | `w` | Toggle soft wrap |
 | `#` | Toggle line numbers |
 | `ctrl-l` | Redraw the screen |
@@ -224,14 +222,14 @@ keys do the same thing in all three:
 | `/`, `n` / `N` | Search, next / previous match |
 | `esc` | Hide the search highlights, then go back |
 | `?` | Help, in the same window everywhere (`j`/`k` or the wheel scroll it; any other key closes it) |
-| `q`, `ctrl-c` | Quit |
+| `q`, `ctrl-c` | Quit (in an input box, `ctrl-c` cancels it like `esc`) |
 | mouse wheel | Scroll (`ctrl` + wheel: faster) |
 | mouse drag | Select text and copy it with OSC 52 on release |
 | shift + drag | The terminal's own selection |
 
-Other keys are specific to one tool. Where a view doesn't scroll sideways,
-`h`/`l`/`H`/`L` may do something else there (in `git-graph`'s commit list
-they move between panes and jump to HEAD).
+Other keys are specific to one tool, and no key just repeats another one.
+In `git-graph`'s commit list, which doesn't scroll sideways, `H` jumps to
+HEAD.
 
 ### Shared search
 
@@ -267,17 +265,19 @@ All three draw the same frame:
 ╭ Panel  details ─────────────────────────────────────── /search  current/total ╮
 │ content                                                                       █
 │                                                                               ║
-╰──────────────────────────────────────────────────────────────────── 1-24/812 ╯
+╰──────────────────────────────────────────────────────────────────────────────╯
  j/k move  / search  n/N next/prev  tool keys…  esc back  ? help  q quit
 ```
 
 - The header starts with the tool's name on a cyan badge; flags appear only
   while they are on (e.g. `wrap`, `diff · bell · wrap`).
 - Panels have rounded borders; the focused one is cyan.
-- A panel whose content doesn't fit has a scrollbar on its right border (cyan
-  thumb on a gray track) and the visible range on its bottom border.
+- A panel whose content doesn't fit has a scrollbar on its right border, in
+  the border's color (cyan when the panel is focused). Nothing is drawn over
+  the bottom border.
 - The footer lists keys in the same order everywhere: movement, search, the
-  tool's own keys, `esc` back where it applies, then `? help` and `q quit`.
+  tool's most used keys (`?` lists them all), `esc` back where it applies,
+  then `? help` and `q quit`.
   Keys are cyan and their descriptions gray; on a narrow terminal the tool's
   own keys are dropped first, so help and quit always stay visible. A status
   message (yellow) replaces the hints until the next key.
