@@ -1,4 +1,6 @@
 use std::collections::VecDeque;
+
+use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::text::Line;
 
 use crate::ansi::parse_ansi_line;
@@ -756,6 +758,27 @@ impl App {
         let half = self.viewport_height / 2;
         let pos = self.retreat((line_idx, 0), half).min(self.max_position());
         self.set_position(pos);
+    }
+
+    // ---- Mouse ----
+
+    pub fn on_mouse(&mut self, mouse: MouseEvent) {
+        let fast = mouse.modifiers.contains(KeyModifiers::CONTROL);
+        if self.show_help {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => self.help_scroll = self.help_scroll.saturating_sub(3),
+                MouseEventKind::ScrollDown => self.help_scroll += 3,
+                _ => {}
+            }
+            return;
+        }
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.scroll_up(if fast { 15 } else { 3 }),
+            MouseEventKind::ScrollDown => self.scroll_down(if fast { 15 } else { 3 }),
+            MouseEventKind::ScrollLeft => self.scroll_left(if fast { 20 } else { 4 }),
+            MouseEventKind::ScrollRight => self.scroll_right(if fast { 20 } else { 4 }),
+            _ => {}
+        }
     }
 }
 

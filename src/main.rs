@@ -18,9 +18,7 @@ use clap::CommandFactory;
 use clap::Parser;
 use crossterm::{
     cursor::{Hide, Show},
-    event::{
-        self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-    },
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
     tty::IsTty,
@@ -75,8 +73,13 @@ struct Cli {
     #[arg(short = 'f', long, hide = true, conflicts_with = "no_follow")]
     follow: bool,
 
-    /// Ignored: the mouse wheel always scrolls now (kept for compatibility)
-    #[arg(short = 'm', long, hide = true)]
+    /// Don't capture the mouse: plain drag uses the terminal's own selection, and the
+    /// wheel scrolls only where the terminal supports alternate scroll mode
+    #[arg(long)]
+    no_mouse: bool,
+
+    /// Ignored: the mouse is captured by default (kept for compatibility)
+    #[arg(short = 'm', long, hide = true, conflicts_with = "no_mouse")]
     mouse: bool,
 }
 
@@ -99,9 +102,28 @@ fn open_terminal_writer() -> Box<dyn Write> {
     }
 }
 
-/// Alternate scroll mode (DECSET 1007): in the alternate screen the terminal turns
-/// mouse wheel scrolling into Up / Down keys. Unlike mouse capture, this leaves the
-/// terminal's own click-and-drag text selection working.
+/// Mouse capture: button presses, drags (1002, not every motion) and the wheel, in
+/// SGR encoding (1006). Unlike alternate scroll mode, this also works inside tmux.
+struct MouseCapture(bool);
+
+impl crossterm::Command for MouseCapture {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        f.write_str(if self.0 {
+            "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+        } else {
+            "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
+        })
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Alternate scroll mode (DECSET 1007), used with `--no-mouse`: in the alternate
+/// screen the terminal turns mouse wheel scrolling into Up / Down keys, leaving its
+/// own text selection working. Not every terminal (or tmux) supports it.
 struct AlternateScroll(bool);
 
 impl crossterm::Command for AlternateScroll {
@@ -118,17 +140,22 @@ impl crossterm::Command for AlternateScroll {
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let mut writer = open_terminal_writer();
-    let _ = execute!(writer, AlternateScroll(false), LeaveAlternateScreen, Show);
+    let _ = execute!(writer, MouseCapture(false), AlternateScroll(false), LeaveAlternateScreen, Show);
 }
 
 /// Puts the terminal into TUI mode and restores it when dropped, on every exit path.
 struct TerminalGuard;
 
 impl TerminalGuard {
-    fn enter(writer: &mut impl Write) -> io::Result<Self> {
+    fn enter(writer: &mut impl Write, mouse: bool) -> io::Result<Self> {
         enable_raw_mode()?;
         let guard = TerminalGuard;
-        execute!(writer, EnterAlternateScreen, AlternateScroll(true), Hide)?;
+        execute!(writer, EnterAlternateScreen, Hide)?;
+        if mouse {
+            execute!(writer, MouseCapture(true))?;
+        } else {
+            execute!(writer, AlternateScroll(true))?;
+        }
         Ok(guard)
     }
 }
@@ -208,7 +235,7 @@ fn main() -> io::Result<()> {
     // Initialize terminal; the guard restores it however we exit (declared before
     // the terminal so it is dropped after it)
     let mut writer = open_terminal_writer();
-    let _guard = TerminalGuard::enter(&mut writer)?;
+    let _guard = TerminalGuard::enter(&mut writer, !args.no_mouse)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(writer))?;
 
     run_app(&mut terminal, &mut app, rx)
@@ -283,6 +310,10 @@ fn handle_event(terminal: &mut Tui, app: &mut App, event: Event) -> io::Result<b
     match event {
         // Ignore key releases (reported on Windows and with keyboard enhancements)
         Event::Key(key) if key.kind != KeyEventKind::Release => handle_key(terminal, app, key),
+        Event::Mouse(mouse) => {
+            app.on_mouse(mouse);
+            Ok(false)
+        }
         // Resize is handled on the next draw
         _ => Ok(false),
     }

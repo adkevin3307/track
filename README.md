@@ -56,9 +56,9 @@ any configuration.
 - **Line numbers** with `#`. They stay absolute (input line numbers) even
   after old lines are dropped from the buffer, and stay pinned on the left
   when scrolling sideways. `:` jumps to a line number.
-- **Mouse wheel scrolling and text selection, both always on.** The wheel
-  scrolls without `track` capturing the mouse, so clicking and dragging
-  still selects and copies text as usual.
+- **Mouse wheel scrolling**, in tmux too. Shift + drag still gives the
+  terminal's own text selection, or start `track --no-mouse` to leave the
+  mouse to the terminal.
 - **Robust and light.** Invalid UTF-8 is shown as `�` instead of stopping the
   reader; input is read on a background thread, filters and searches are
   matched incrementally, and the screen is redrawn only when something
@@ -102,12 +102,13 @@ track [OPTIONS] [FILE]
 | `-w, --wrap` | Start with line wrapping enabled |
 | `-N, --line-numbers` | Start with line numbers displayed |
 | `--no-follow` | Read the input once instead of following it, and start at the top |
+| `--no-mouse` | Don't capture the mouse: plain drag uses the terminal's own selection, and the wheel scrolls only where the terminal supports it |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
 The old spellings still work: `--max-lines`, `-l` / `--numbers`, and
 `-f` / `--follow` (following is now the default). `-m` / `--mouse` is accepted
-and ignored, since the wheel always scrolls.
+and ignored, since the mouse is captured by default.
 
 ```sh
 track app.log                    # view and follow a file
@@ -167,7 +168,8 @@ other key closes it).
 | `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
 | `H`/`L`, `[`/`]`, `ctrl-←`/`ctrl-→` | Scroll sideways 20 columns |
 | `^` / `$`, `home` / `end` | Line start / end of the longest visible line |
-| mouse wheel | Scroll (click and drag still selects text) |
+| mouse wheel | Scroll (hold `ctrl` to scroll faster) |
+| shift + drag | Your terminal's own text selection |
 
 **Search & filter**
 
