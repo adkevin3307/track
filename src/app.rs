@@ -1,12 +1,14 @@
 use std::collections::VecDeque;
 
-use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::{Position, Rect};
 use ratatui::text::Line;
 
 use crate::ansi::parse_ansi_line;
 use crate::input::{LineEditor, push_history};
 use crate::layout::wrapped_row_count;
 use crate::matcher::Matcher;
+use crate::selection::{Selection, TextPos, slice_columns};
 
 #[derive(Debug, Clone)]
 pub struct LogLine {
@@ -88,6 +90,15 @@ pub struct App {
     /// Scroll position right after the last jump to a match; once the view moves away,
     /// n / N search from the screen instead of from the current match.
     match_jump_pos: Option<(usize, usize)>,
+
+    // Mouse (layout of the last frame, set by the renderer)
+    /// Inner area of the log panel, gutter included.
+    pub log_area: Rect,
+    /// Where the log text is drawn (right of the gutter).
+    pub content_area: Rect,
+    /// For each screen row of the log: its view line and the line column it starts at.
+    pub screen_rows: Vec<(usize, usize)>,
+    pub selection: Option<Selection>,
 }
 
 impl App {
@@ -132,6 +143,11 @@ impl App {
             search_match_indices: Vec::new(),
             current_match_idx: None,
             match_jump_pos: None,
+
+            log_area: Rect::default(),
+            content_area: Rect::default(),
+            screen_rows: Vec::new(),
+            selection: None,
         }
     }
 
@@ -283,6 +299,11 @@ impl App {
     pub fn get_original_line_number(&self, view_index: usize) -> usize {
         let real = self.view_to_real(view_index).unwrap_or(view_index);
         self.dropped_lines + real + 1
+    }
+
+    /// Absolute (0-based) line number of a view line, stable across buffer trimming.
+    pub fn absolute_line(&self, view_index: usize) -> Option<usize> {
+        Some(self.dropped_lines + self.view_to_real(view_index)?)
     }
 
     // ---- Vertical scrolling ----
@@ -762,7 +783,8 @@ impl App {
 
     // ---- Mouse ----
 
-    pub fn on_mouse(&mut self, mouse: MouseEvent) {
+    /// Handles a mouse event. Returns the text to copy when a selection is finished.
+    pub fn on_mouse(&mut self, mouse: MouseEvent) -> Option<String> {
         let fast = mouse.modifiers.contains(KeyModifiers::CONTROL);
         if self.show_help {
             match mouse.kind {
@@ -770,15 +792,110 @@ impl App {
                 MouseEventKind::ScrollDown => self.help_scroll += 3,
                 _ => {}
             }
-            return;
+            return None;
         }
         match mouse.kind {
             MouseEventKind::ScrollUp => self.scroll_up(if fast { 15 } else { 3 }),
             MouseEventKind::ScrollDown => self.scroll_down(if fast { 15 } else { 3 }),
             MouseEventKind::ScrollLeft => self.scroll_left(if fast { 20 } else { 4 }),
             MouseEventKind::ScrollRight => self.scroll_right(if fast { 20 } else { 4 }),
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.status_message = None;
+                self.cancel_selection();
+                if self.log_area.contains(Position::new(mouse.column, mouse.row))
+                    && let Some(at) = self.text_pos_at(mouse.column, mouse.row)
+                {
+                    self.selection = Some(Selection::new(at, self.following));
+                    self.following = false;
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.selection.is_some() => {
+                // Dragging past the top or bottom edge scrolls (without resuming following)
+                if mouse.row < self.content_area.y {
+                    self.scroll_up(1);
+                } else if mouse.row >= self.content_area.bottom() {
+                    self.scroll_down(1);
+                    self.following = false;
+                }
+                if let Some(sel) = self.selection.as_mut() {
+                    sel.dragged = true;
+                    // Resolved after the next layout, which reflects the scrolling above
+                    sel.pending = Some((mouse.column, mouse.row));
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) if self.selection.is_some() => {
+                self.resolve_drag();
+                let sel = self.selection.take()?;
+                self.following = sel.was_following;
+                let text = self.selected_text(&sel);
+                if text.is_empty() {
+                    return None;
+                }
+                let n = text.chars().count();
+                self.status_message = Some(format!(
+                    "copied {n} character{} to the clipboard",
+                    if n == 1 { "" } else { "s" }
+                ));
+                return Some(text);
+            }
             _ => {}
         }
+        None
+    }
+
+    /// Drops an unfinished selection (e.g. on a key press) and resumes following if it was on.
+    pub fn cancel_selection(&mut self) {
+        if let Some(sel) = self.selection.take() {
+            self.following |= sel.was_following;
+        }
+    }
+
+    /// Moves the selection cursor to the latest drag position, using the last layout.
+    pub fn resolve_drag(&mut self) {
+        let Some((x, y)) = self.selection.as_mut().and_then(|s| s.pending.take()) else {
+            return;
+        };
+        if let Some(at) = self.text_pos_at(x, y)
+            && let Some(sel) = self.selection.as_mut()
+        {
+            sel.cursor = at;
+        }
+    }
+
+    /// The log position under terminal cell (x, y), clamped to the log text.
+    fn text_pos_at(&self, x: u16, y: u16) -> Option<TextPos> {
+        let area = self.content_area;
+        let &(last_view, _) = self.screen_rows.last()?;
+        if area.width == 0 || area.height == 0 {
+            return None;
+        }
+        let row = (y.clamp(area.y, area.bottom() - 1) - area.y) as usize;
+        let (view, col) = match self.screen_rows.get(row) {
+            Some(&(view, col_start)) => {
+                (view, col_start + (x.clamp(area.x, area.right() - 1) - area.x) as usize)
+            }
+            // Below the last line: its end
+            None => (last_view, usize::MAX / 2),
+        };
+        Some(TextPos { line: self.absolute_line(view)?, col })
+    }
+
+    /// The selected text of the lines still shown, one log line per text line.
+    pub fn selected_text(&self, sel: &Selection) -> String {
+        let (start, end) = sel.range();
+        let first_real = start.line.saturating_sub(self.dropped_lines);
+        let mut lines = Vec::new();
+        for view in self.real_to_view(first_real)..self.total_display_lines() {
+            let Some(line) = self.absolute_line(view) else { break };
+            if line > end.line {
+                break;
+            }
+            let Some((from, to)) = sel.columns(line) else { continue };
+            if let Some(log_line) = self.get_line(view) {
+                lines.push(slice_columns(log_line.clean_text(), from, to));
+            }
+        }
+        lines.join("\n")
     }
 }
 
@@ -791,6 +908,43 @@ mod tests {
         app.viewport_height = 10;
         app.add_lines(lines.iter().map(|s| s.to_string()).collect());
         app
+    }
+
+    fn mouse(app: &mut App, kind: MouseEventKind, column: u16, row: u16) -> Option<String> {
+        app.on_mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE })
+    }
+
+    #[test]
+    fn test_drag_selects_and_copies_text() {
+        let mut app = app_with(&["alpha one", "beta two", "gamma three", "delta four"]);
+        // Log text drawn at (1, 1), one row per line, scrolled 2 columns sideways
+        app.log_area = Rect::new(1, 1, 20, 4);
+        app.content_area = app.log_area;
+        app.screen_rows = (0..4).map(|v| (v, 2)).collect();
+
+        let left = MouseButton::Left;
+        assert_eq!(mouse(&mut app, MouseEventKind::Down(left), 2, 1), None);
+        assert!(!app.following, "following pauses while selecting");
+        mouse(&mut app, MouseEventKind::Drag(left), 3, 3);
+        let copied = mouse(&mut app, MouseEventKind::Up(left), 3, 3);
+        // From column 3 of line 1 to column 4 (inclusive) of line 3
+        assert_eq!(copied.as_deref(), Some("ha one\nbeta two\ngamma"));
+        assert!(app.following, "following resumes on release");
+        assert!(app.selection.is_none());
+
+        // A plain click copies nothing
+        mouse(&mut app, MouseEventKind::Down(left), 2, 1);
+        assert_eq!(mouse(&mut app, MouseEventKind::Up(left), 2, 1), None);
+    }
+
+    #[test]
+    fn test_selected_text_skips_filtered_lines() {
+        let mut app = app_with(&["a 1", "b 2", "a 3", "b 4"]);
+        submit(&mut app, InputMode::Filter, "a");
+        let mut sel = Selection::new(TextPos { line: 0, col: 0 }, false);
+        sel.cursor = TextPos { line: 3, col: 99 };
+        sel.dragged = true;
+        assert_eq!(app.selected_text(&sel), "a 1\na 3");
     }
 
     fn submit(app: &mut App, mode: InputMode, text: &str) {

@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app::{App, InputMode};
 use crate::layout::{highlight_line, slice_line, wrap_line};
 use crate::matcher::Matcher;
+use crate::selection::highlight_columns;
 
 // Fixed RGB colors (not terminal theme colors, which vary) that stay legible on
 // dark backgrounds. The log text itself keeps its own ANSI colors.
@@ -128,6 +129,8 @@ struct Row {
     view_index: usize,
     /// First row of its log line (continuation rows of wrapped lines get no number).
     first: bool,
+    /// Column of the whole log line that the row starts at.
+    col_start: usize,
     line: Line<'static>,
 }
 
@@ -139,6 +142,8 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let inner = block.inner(area);
     f.render_widget(block, area);
+    app.log_area = inner;
+    app.screen_rows.clear();
     if inner.height == 0 || inner.width == 0 {
         return;
     }
@@ -159,6 +164,7 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         (None, inner)
     };
     app.viewport_width = content_area.width as usize;
+    app.content_area = content_area;
 
     if total_lines == 0 {
         app.visible_start = 0;
@@ -195,6 +201,8 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     let rows = layout_rows(app, highlight, height);
     app.visible_start = rows.first().map_or(0, |r| r.view_index);
     app.visible_end = rows.last().map_or(0, |r| r.view_index + 1);
+    app.screen_rows = rows.iter().map(|r| (r.view_index, r.col_start)).collect();
+    app.resolve_drag();
 
     if let Some((g_area, digits)) = gutter_area {
         let current_match_line = app
@@ -223,7 +231,23 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(gutter_lines), g_area);
     }
 
-    let content: Vec<Line> = rows.into_iter().map(|row| row.line).collect();
+    let content: Vec<Line> = rows
+        .into_iter()
+        .map(|row| {
+            let selected = app
+                .selection
+                .zip(app.absolute_line(row.view_index))
+                .and_then(|(sel, line)| sel.columns(line));
+            match selected {
+                Some((from, to)) => highlight_columns(
+                    row.line,
+                    from.saturating_sub(row.col_start),
+                    to.saturating_sub(row.col_start),
+                ),
+                None => row.line,
+            }
+        })
+        .collect();
     f.render_widget(Paragraph::new(content), content_area);
 }
 
@@ -248,6 +272,7 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
             .map(|i| Row {
                 view_index: i,
                 first: true,
+                col_start: app.horizontal_offset,
                 line: slice_line(&styled_line(app, i, highlight), app.horizontal_offset, width),
             })
             .collect();
@@ -260,12 +285,14 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
         if rows.len() >= height {
             break;
         }
-        let wrapped = wrap_line(&styled_line(app, i, highlight), width);
-        rows.extend(wrapped.into_iter().enumerate().skip(skip).map(|(n, line)| Row {
-            view_index: i,
-            first: n == 0,
-            line,
-        }));
+        let mut col_start = 0;
+        for (n, line) in wrap_line(&styled_line(app, i, highlight), width).into_iter().enumerate() {
+            let row_width = line.width();
+            if n >= skip {
+                rows.push(Row { view_index: i, first: n == 0, col_start, line });
+            }
+            col_start += row_width;
+        }
         skip = 0;
     }
     rows.truncate(height);
@@ -351,6 +378,7 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("g/G", "top / bottom (bottom resumes following)"),
     (":", "go to line number"),
     ("mouse wheel", "scroll (ctrl: faster)"),
+    ("mouse drag", "select text; copied to the clipboard on release"),
     ("shift-drag", "the terminal's own selection"),
     ("h/l ←/→", "scroll sideways 4 columns"),
     ("H/L [/] ctrl-←/→", "scroll sideways 20 columns"),

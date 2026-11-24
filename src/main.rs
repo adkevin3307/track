@@ -4,6 +4,7 @@ mod input;
 mod layout;
 mod matcher;
 mod reader;
+mod selection;
 mod ui;
 
 use std::fs::{File, OpenOptions};
@@ -103,7 +104,7 @@ fn open_terminal_writer() -> Box<dyn Write> {
 }
 
 /// Mouse capture: button presses, drags (1002, not every motion) and the wheel, in
-/// SGR encoding (1006). Unlike alternate scroll mode, this also works inside tmux.
+/// SGR encoding (1006). track selects and copies text itself while it is on.
 struct MouseCapture(bool);
 
 impl crossterm::Command for MouseCapture {
@@ -311,7 +312,11 @@ fn handle_event(terminal: &mut Tui, app: &mut App, event: Event) -> io::Result<b
         // Ignore key releases (reported on Windows and with keyboard enhancements)
         Event::Key(key) if key.kind != KeyEventKind::Release => handle_key(terminal, app, key),
         Event::Mouse(mouse) => {
-            app.on_mouse(mouse);
+            if let Some(text) = app.on_mouse(mouse) {
+                let writer = terminal.backend_mut();
+                writer.write_all(selection::osc52(&text).as_bytes())?;
+                writer.flush()?;
+            }
             Ok(false)
         }
         // Resize is handled on the next draw
@@ -321,6 +326,7 @@ fn handle_event(terminal: &mut Tui, app: &mut App, event: Event) -> io::Result<b
 
 fn handle_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bool> {
     app.status_message = None;
+    app.cancel_selection();
 
     if app.show_help {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {

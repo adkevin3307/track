@@ -56,9 +56,10 @@ any configuration.
 - **Line numbers** with `#`. They stay absolute (input line numbers) even
   after old lines are dropped from the buffer, and stay pinned on the left
   when scrolling sideways. `:` jumps to a line number.
-- **Mouse wheel scrolling**, in tmux too. Shift + drag still gives the
-  terminal's own text selection, or start `track --no-mouse` to leave the
-  mouse to the terminal.
+- **Mouse support.** The wheel scrolls (in tmux too), and dragging selects
+  text and copies it to the clipboard when you release (see
+  [Copying text](#copying-text)). Shift + drag still gives the terminal's own
+  selection.
 - **Robust and light.** Invalid UTF-8 is shown as `�` instead of stopping the
   reader; input is read on a background thread, filters and searches are
   matched incrementally, and the screen is redrawn only when something
@@ -169,6 +170,7 @@ other key closes it).
 | `H`/`L`, `[`/`]`, `ctrl-←`/`ctrl-→` | Scroll sideways 20 columns |
 | `^` / `$`, `home` / `end` | Line start / end of the longest visible line |
 | mouse wheel | Scroll (hold `ctrl` to scroll faster) |
+| mouse drag | Select text; it's copied to the clipboard when you release |
 | shift + drag | Your terminal's own text selection |
 
 **Search & filter**
@@ -201,6 +203,19 @@ other key closes it).
 | `ctrl-l` | Redraw the screen |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |
+
+## Copying text
+
+Drag over the log to select text. Following pauses while you drag, so new
+lines can't move the text under the mouse, and dragging past the top or
+bottom edge scrolls. When you release the button, the text is copied to the
+system clipboard with OSC 52, one log line per line (wrapped lines are joined
+back together, and lines hidden by a filter are left out). Windows Terminal,
+iTerm2, kitty, WezTerm, Alacritty and foot support OSC 52. Inside tmux, run
+`tmux set -s set-clipboard on`.
+
+Shift + drag (Option + drag in iTerm2) still gives your terminal's own
+selection, or start `track --no-mouse` to leave the mouse to the terminal.
 
 ## Development
 
