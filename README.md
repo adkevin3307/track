@@ -27,19 +27,9 @@
 
 ## Installation & Building
 
-### Quick Build Script
-You can use the provided build script to compile and optionally install `track` to `~/.local/bin`:
+Requires a Rust toolchain with edition 2024 support (Rust 1.85+).
 
-```bash
-./build.sh
-```
-
-To automatically copy without prompting:
-```bash
-./build.sh -y
-```
-
-### Manual Cargo Build
+### Build
 To compile an optimized, standalone executable:
 
 ```bash
@@ -51,11 +41,17 @@ The compiled binary will be located at:
 ./target/release/track
 ```
 
-### Install Globally
+### Install
 To install `track` into your Cargo bin path (`~/.cargo/bin/track`):
 
 ```bash
 cargo install --path .
+```
+
+Or copy the release binary to any directory on your `PATH`, e.g. `~/.local/bin`:
+
+```bash
+install -Dm755 target/release/track ~/.local/bin/track
 ```
 
 ---
