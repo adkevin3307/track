@@ -44,12 +44,15 @@ any configuration.
 - **Soft wrap** with `w`. Scrolling then moves by screen rows, so even a line
   taller than the screen can be read in full.
 - **ANSI colors preserved** from Docker and other CLI tools; the UI itself
-  uses the terminal's default colors and background.
+  uses the terminal's default colors and background. Other escape sequences
+  (hyperlinks from `ls --hyperlink`, `tput sgr0`'s `ESC ( B`, cursor
+  movement) are removed instead of garbling the line.
 - **Regex search** with smart case (case-insensitive unless the pattern has an
   uppercase letter); invalid regexes are matched literally. `/` opens a small
   input box; matches are highlighted and jumped to while typing, `n`/`N` step
-  through them (continuing from the screen after you scroll away), and `esc`
-  hides the highlights. See [Shared search](#shared-search).
+  through them with the current match's line highlighted (continuing from the
+  screen after you scroll away), and `esc` hides the highlights. See
+  [Shared search](#shared-search).
 - **Stackable filters.** `&` shows only matching lines, `&` again narrows
   further, and `&!pattern` hides noise. `esc` removes the most recent one
   (after hiding the search highlights).
@@ -65,7 +68,11 @@ any configuration.
 - **Robust and light.** Invalid UTF-8 is shown as `�` instead of stopping the
   reader; input is read on a background thread, filters and searches are
   matched incrementally, and the screen is redrawn only when something
-  changes. At most 100,000 lines are kept in memory by default.
+  changes. At most 100,000 lines are kept in memory by default, and a producer
+  faster than track is held back rather than buffered, so `q` always answers.
+  Progress lines redrawn with `\r` keep only their latest text, files that
+  report size 0 (`/proc`, `/sys`) are not re-read, and a pipe opened by path
+  (`track <(cmd)`) is read to its end.
 
 ## Install
 
@@ -105,7 +112,7 @@ track [OPTIONS] [FILE]
 | `-w, --wrap` | Start with line wrapping enabled |
 | `-N, --line-numbers` | Start with line numbers displayed |
 | `--no-follow` | Read the input once instead of following it, and start at the top |
-| `--no-mouse` | Don't capture the mouse: plain drag uses the terminal's own selection, and the wheel scrolls only where the terminal supports it |
+| `--no-mouse` | Don't capture the mouse: drag uses the terminal's own selection, and the wheel scrolls only where the terminal supports alternate scroll mode |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
@@ -167,10 +174,10 @@ same in track, monitor and git-graph (see the shared key guideline below).
 | `j`/`k`, `↓`/`↑` | Down / up (one row when wrapping; going up pauses following) |
 | `ctrl-d`/`ctrl-u` | Half page down / up |
 | `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Page down / up |
-| `g` / `G` | Top / bottom (`G` resumes following) |
+| `g`/`G` | Top / bottom (`G` resumes following) |
 | `h`/`l`, `←`/`→` | Left / right 4 columns (when not wrapping) |
 | `H`/`L` | Left / right half a page (when not wrapping) |
-| `home` / `end` | Line start / end (when not wrapping) |
+| `home`/`end` | Line start / end (when not wrapping) |
 | `:` | Go to line number |
 
 **Search & filter**
@@ -178,7 +185,7 @@ same in track, monitor and git-graph (see the shared key guideline below).
 | Key | Action |
 |---|---|
 | `/` | Search (regex, smart case) |
-| `n` / `N` | Next / previous match |
+| `n`/`N` | Next / previous match |
 | `&` | Add a filter: show only matching lines (filters stack) |
 | `&` then `!pattern` | Add a filter: hide matching lines |
 | `&` then `enter` (empty) | Remove all filters |
@@ -222,18 +229,18 @@ keys do the same thing in all three:
 | `j`/`k`, `↓`/`↑` | Down / up |
 | `ctrl-d`/`ctrl-u` | Half page down / up |
 | `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Page down / up |
-| `g` / `G` | Top / bottom |
+| `g`/`G` | Top / bottom |
 | `h`/`l` | Left / right 4 columns |
 | `H`/`L` | Left / right half a page |
-| `home` / `end` | Line start / end (not top / bottom) |
-| `/`, `n` / `N` | Search (regex, smart case), next / previous match |
+| `home`/`end` | Line start / end (not top / bottom) |
+| `/`, `n`/`N` | Search (regex, smart case), next / previous match |
 | `esc` | Hide search highlights, then go back |
 | `w` | Toggle wrap (track, monitor) |
 | `r` | Refresh: redraw the screen, and run the command again (monitor) or reload the repository (git-graph) |
 | `?` | Help, in the same window everywhere (`j`/`k` or the wheel scroll it; any other key closes it) |
 | `q`, `ctrl-c` | Quit (in an input box, `ctrl-c` cancels it like `esc`) |
 | mouse wheel | Scroll (`ctrl` + wheel: faster) |
-| mouse drag | Select text and copy it with OSC 52 on release |
+| mouse drag | Select text and copy it with OSC 52 on release (up to 512 KB) |
 | shift + drag | The terminal's own selection |
 
 Other keys are specific to one tool, and no key just repeats another one.
@@ -252,19 +259,25 @@ HEAD.
 ```
 
 - Patterns are regular expressions with smart case (case-insensitive unless
-  the pattern has an uppercase letter); an invalid regex is matched literally.
-- While you type, matches are highlighted, the view jumps to the first match
+  the pattern has an uppercase letter; the letter of an escape such as `\W`
+  or `\S` doesn't count); an invalid regex is matched literally.
+- While you type, matches are highlighted, the view moves to the first match
   from where you started, and the box shows how many there are.
 - `enter` keeps the search; `esc` cancels it and goes back to where you were;
   an empty search clears it.
 - Editing: `←`/`→`, `home`/`end`, `ctrl-a`/`ctrl-e` move the cursor,
   `ctrl-u`/`ctrl-w` delete to the start / the previous word, `↑`/`↓` browse
   earlier searches, and `backspace` on an empty box closes it.
+- `n`/`N` move to the next / previous match. The current match's line is
+  highlighted (in `git-graph` it is the selected commit), and the view only
+  scrolls when the match is off screen, keeping 3 lines of context. Scroll
+  the current match out of view and `n`/`N` start from the screen instead.
 - The main panel's title shows the search and the current match, e.g.
   `/error  3/12`.
 - Matches are highlighted in black on yellow. `esc` hides the highlights but
-  keeps the search (the title then says `hidden`), like vim's `:noh`; `n` / `N`
+  keeps the search (the title then says `hidden`), like vim's `:noh`; `n`/`N`
   show them again and jump to the next / previous match.
+
 ### Shared screen layout
 
 All three draw the same frame:
@@ -278,8 +291,10 @@ All three draw the same frame:
  j/k down/up  g/G top/bottom  / search  n/N next/prev  tool keys…  esc back  ? help  q quit
 ```
 
-- The header starts with the tool's name on a cyan badge; flags appear only
-  while they are on (e.g. `wrap`, `diff · bell · wrap`).
+- The header starts with the tool's name on a cyan badge, then what it shows
+  (cut short with `…` when space runs out), its state, and the flags that
+  are on (e.g. `wrap`, `diff · bell · wrap`). The tool-specific info on the
+  right appears when everything fits.
 - Panels have rounded borders; the focused one is cyan.
 - A panel whose content doesn't fit has a scrollbar on its right border, in
   the border's color (cyan when the panel is focused). Nothing is drawn over
@@ -288,8 +303,14 @@ All three draw the same frame:
   tool's most used keys (`?` lists them all), `esc` back where it applies,
   then `? help` and `q quit`.
   Keys are cyan and their descriptions gray; on a narrow terminal the tool's
-  own keys are dropped first, so help and quit always stay visible. A status
-  message (yellow) replaces the hints until the next key.
+  own keys are dropped first, then `? help`, and a hint is never cut in
+  half. A status message (yellow) replaces the hints until the next key.
+- The mouse is captured, so the wheel scrolls and a drag selects text.
+  `--no-mouse` leaves it to the terminal and asks for alternate scroll mode,
+  so the wheel still scrolls where the terminal supports it.
+- However the tool ends (`q`, `ctrl-c`, a termination signal from outside
+  such as `kill` or closing the terminal or tmux pane, or a crash), the
+  terminal is restored: normal screen, cursor, keyboard and mouse.
 
 ## Copying text
 
@@ -319,8 +340,11 @@ cargo test     # reader, scrolling, search/filter, layout, selection and editor 
 | `src/matcher.rs` | Search / filter patterns: smart-case regex, literal fallback, `!` exclusion (shared) |
 | `src/layout.rs` | Highlighting, horizontal slicing and wrapping by display width |
 | `src/ansi.rs` | ANSI color parsing and tab expansion |
+| `src/escapes.rs` | Removes escape sequences other than colors before parsing (shared with monitor) |
 | `src/input.rs` | Prompt line editor and history (shared) |
-| `src/selection.rs` | Mouse text selection, highlighting and OSC 52 copying |
+| `src/selection.rs` | Mouse text selection and highlighting |
+| `src/terminal.rs` | Entering and restoring the terminal, panics, OSC 52 copying (shared) |
+| `src/signals.rs` | Quitting cleanly on termination signals (shared) |
 | `src/ui.rs` | Rendering with ratatui |
 | `src/main.rs` | Command-line options, terminal setup and the event loop |
 
