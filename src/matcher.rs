@@ -27,7 +27,11 @@ impl Matcher {
         }
 
         let case_insensitive = !pattern.chars().any(char::is_uppercase);
-        let build = |p: &str| RegexBuilder::new(p).case_insensitive(case_insensitive).build();
+        let build = |p: &str| {
+            RegexBuilder::new(p)
+                .case_insensitive(case_insensitive)
+                .build()
+        };
         let (regex, literal) = match build(pattern) {
             Ok(re) => (re, false),
             Err(_) => (build(&regex::escape(pattern)).ok()?, true),
@@ -41,6 +45,7 @@ impl Matcher {
         })
     }
 
+    #[allow(dead_code)] // monitor only highlights matches; the others filter with it
     pub fn is_match(&self, text: &str) -> bool {
         self.regex.is_match(text) != self.invert
     }

@@ -65,7 +65,10 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled("  paused", Style::new().fg(YELLOW)));
         let below = app.lines_below();
         if below > 0 {
-            spans.push(Span::styled(format!(" · {below} below"), Style::new().fg(DIM)));
+            spans.push(Span::styled(
+                format!(" · {below} below"),
+                Style::new().fg(DIM),
+            ));
         }
     }
     if app.wrap {
@@ -77,12 +80,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         "0 lines ".to_string()
     } else {
         let pct = (app.visible_end * 100).checked_div(total).unwrap_or(100);
-        format!("{}-{}/{} · {pct}% ", app.visible_start + 1, app.visible_end, total)
+        format!(
+            "{}-{}/{} · {pct}% ",
+            app.visible_start + 1,
+            app.visible_end,
+            total
+        )
     };
     let used: usize = spans.iter().map(Span::width).sum();
     let width = area.width as usize;
     if used + position.chars().count() < width {
-        spans.push(Span::raw(" ".repeat(width - used - position.chars().count())));
+        spans.push(Span::raw(
+            " ".repeat(width - used - position.chars().count()),
+        ));
         spans.push(Span::styled(position, Style::new().fg(DIM)));
     }
     f.render_widget(Line::from(spans), area);
@@ -98,7 +108,11 @@ fn log_titles(app: &App) -> (Line<'static>, Option<Line<'static>>) {
             Style::new().fg(MAGENTA),
         ));
         left.push(Span::styled(
-            format!("  {} of {} lines", app.total_display_lines(), app.lines.len()),
+            format!(
+                "  {} of {} lines",
+                app.total_display_lines(),
+                app.lines.len()
+            ),
             Style::new().fg(DIM),
         ));
     }
@@ -165,8 +179,7 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         let digits = max_num.to_string().len().max(3);
         let gutter_width = (digits + 3) as u16; // e.g. "1234 │ "
         let [gutter, content] =
-            Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(1)])
-                .areas(inner);
+            Layout::horizontal([Constraint::Length(gutter_width), Constraint::Min(1)]).areas(inner);
         (Some((gutter, digits)), content)
     } else {
         (None, inner)
@@ -281,7 +294,11 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
                 view_index: i,
                 first: true,
                 col_start: app.horizontal_offset,
-                line: slice_line(&styled_line(app, i, highlight), app.horizontal_offset, width),
+                line: slice_line(
+                    &styled_line(app, i, highlight),
+                    app.horizontal_offset,
+                    width,
+                ),
             })
             .collect();
     }
@@ -294,10 +311,18 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
             break;
         }
         let mut col_start = 0;
-        for (n, line) in wrap_line(&styled_line(app, i, highlight), width).into_iter().enumerate() {
+        for (n, line) in wrap_line(&styled_line(app, i, highlight), width)
+            .into_iter()
+            .enumerate()
+        {
             let row_width = line.width();
             if n >= skip {
-                rows.push(Row { view_index: i, first: n == 0, col_start, line });
+                rows.push(Row {
+                    view_index: i,
+                    first: n == 0,
+                    col_start,
+                    line,
+                });
             }
             col_start += row_width;
         }
@@ -352,7 +377,12 @@ fn draw_prompt(f: &mut Frame, app: &App) {
         InputMode::Filter => (
             "Filter",
             "\u{f0b0}",
-            &[("enter", "add"), ("!pat", "exclude"), ("empty", "clear all"), ("esc", "cancel")],
+            &[
+                ("enter", "add"),
+                ("!pat", "exclude"),
+                ("empty", "clear all"),
+                ("esc", "cancel"),
+            ],
         ),
         InputMode::Goto => ("Go to line", "#", &[("enter", "jump"), ("esc", "cancel")]),
         InputMode::Normal => return,
@@ -360,10 +390,20 @@ fn draw_prompt(f: &mut Frame, app: &App) {
     let info = match (app.input_mode, app.preview_count) {
         (InputMode::Search, Some(0)) => Some(Span::styled("no match", Style::new().fg(RED))),
         (InputMode::Search, Some(1)) => Some(Span::styled("1 match", Style::new().fg(DIM))),
-        (InputMode::Search, Some(n)) => Some(Span::styled(format!("{n} matches"), Style::new().fg(DIM))),
+        (InputMode::Search, Some(n)) => {
+            Some(Span::styled(format!("{n} matches"), Style::new().fg(DIM)))
+        }
         _ => None,
     };
-    draw_input(f, title, icon, app.editor.text(), app.editor.cursor(), info, hints);
+    draw_input(
+        f,
+        title,
+        icon,
+        app.editor.text(),
+        app.editor.cursor(),
+        info,
+        hints,
+    );
 }
 
 /// A one-line input box: rounded border, centered title, icon, block cursor,
@@ -443,7 +483,10 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("g/G", "top / bottom (bottom resumes following)"),
     (":", "go to line number"),
     ("mouse wheel", "scroll (ctrl: faster)"),
-    ("mouse drag", "select text; copied to the clipboard on release"),
+    (
+        "mouse drag",
+        "select text; copied to the clipboard on release",
+    ),
     ("shift-drag", "the terminal's own selection"),
     ("h/l ←/→", "scroll sideways 4 columns"),
     ("H/L", "scroll sideways half a page"),
@@ -451,7 +494,10 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("Search & filter", ""),
     ("/", "search: regex, smart case; jumps while typing"),
     ("n / N", "next / previous match; shows hidden highlights"),
-    ("&", "add a filter: show only matching lines (filters stack)"),
+    (
+        "&",
+        "add a filter: show only matching lines (filters stack)",
+    ),
     ("& !pattern", "add an exclude filter: hide matching lines"),
     ("& enter (empty)", "clear all filters"),
     ("esc", "hide search highlights, then remove the last filter"),
@@ -495,7 +541,9 @@ fn draw_help(f: &mut Frame, app: &mut App) {
         })
         .collect();
     let area = centered(f.area(), 88, lines.len() as u16 + 2);
-    let max = lines.len().saturating_sub(area.height.saturating_sub(2) as usize);
+    let max = lines
+        .len()
+        .saturating_sub(area.height.saturating_sub(2) as usize);
     app.help_scroll = app.help_scroll.min(max);
     let title = if max > 0 {
         " Help — j/k scroll, any other key closes "

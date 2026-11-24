@@ -274,17 +274,32 @@ selection, or start `track --no-mouse` to leave the mouse to the terminal.
 ## Development
 
 ```sh
-cargo test     # reader, scrolling, search/filter, layout and editor tests
-cargo clippy
+cargo fmt
+cargo clippy --all-targets
+cargo test     # reader, scrolling, search/filter, layout, selection and editor tests
 ```
 
 | File | Contents |
 |---|---|
 | `src/reader.rs` | Background reader: stdin and files, partial lines, follow with truncation and rotation |
 | `src/app.rs` | Application state: line buffer, scrolling, filters, search and match navigation |
-| `src/matcher.rs` | Search / filter patterns: smart-case regex, literal fallback, `!` exclusion |
+| `src/matcher.rs` | Search / filter patterns: smart-case regex, literal fallback, `!` exclusion (shared) |
 | `src/layout.rs` | Highlighting, horizontal slicing and wrapping by display width |
 | `src/ansi.rs` | ANSI color parsing and tab expansion |
-| `src/input.rs` | Prompt line editor and history |
+| `src/input.rs` | Prompt line editor and history (shared) |
+| `src/selection.rs` | Mouse text selection, highlighting and OSC 52 copying |
 | `src/ui.rs` | Rendering with ratatui |
 | `src/main.rs` | Command-line options, terminal setup and the event loop |
+
+### Code style
+
+track, monitor and git-graph share one code style, so a change can be
+carried between them:
+
+- `rustfmt.toml` is the same in all three; run `cargo fmt` before committing.
+- `cargo clippy --all-targets` must report nothing, and `cargo test` must pass.
+- `src/input.rs` (line editor and history) and `src/matcher.rs` (smart-case
+  regex search) are identical copies; change them in all three together.
+- The same `[profile.release]` (LTO, one codegen unit, stripped) and
+  `rust-version = "1.88"`; dependencies are listed alphabetically, with the
+  same versions where they overlap.

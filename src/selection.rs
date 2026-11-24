@@ -30,7 +30,13 @@ pub struct Selection {
 
 impl Selection {
     pub fn new(at: TextPos, was_following: bool) -> Self {
-        Self { anchor: at, cursor: at, dragged: false, was_following, pending: None }
+        Self {
+            anchor: at,
+            cursor: at,
+            dragged: false,
+            was_following,
+            pending: None,
+        }
     }
 
     /// Start and end in reading order; both ends are inclusive.
@@ -52,7 +58,11 @@ impl Selection {
             return None;
         }
         let from = if line == start.line { start.col } else { 0 };
-        let to = if line == end.line { end.col.saturating_add(1) } else { usize::MAX };
+        let to = if line == end.line {
+            end.col.saturating_add(1)
+        } else {
+            usize::MAX
+        };
         Some((from, to))
     }
 }
@@ -110,7 +120,9 @@ fn styled(text: String, span: &Span<'static>, selected: bool) -> Span<'static> {
     // Reverse video is dropped, or it would swap the selection background into the
     // text color (log lines can use it, e.g. `less`-style highlights)
     let style = if selected {
-        span.style.remove_modifier(Modifier::REVERSED).bg(SELECTION_BG)
+        span.style
+            .remove_modifier(Modifier::REVERSED)
+            .bg(SELECTION_BG)
     } else {
         span.style
     };
@@ -127,7 +139,11 @@ fn base64(data: &[u8]) -> String {
     const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
         for i in 0..4 {
             if i <= chunk.len() {
@@ -183,8 +199,18 @@ mod tests {
     fn test_highlight_columns_drops_reverse_video() {
         let reversed = Line::from(Span::styled("abc", ratatui::style::Style::new().reversed()));
         let line = highlight_columns(reversed, 0, 1);
-        assert!(line.spans[0].style.sub_modifier.contains(Modifier::REVERSED));
-        assert!(line.spans[1].style.add_modifier.contains(Modifier::REVERSED));
+        assert!(
+            line.spans[0]
+                .style
+                .sub_modifier
+                .contains(Modifier::REVERSED)
+        );
+        assert!(
+            line.spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::REVERSED)
+        );
     }
 
     #[test]

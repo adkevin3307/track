@@ -1,14 +1,13 @@
-use std::sync::LazyLock;
-use regex::Regex;
 use ansi_to_tui::IntoText;
 use ratatui::text::{Line, Span};
+use regex::Regex;
+use std::sync::LazyLock;
 use unicode_width::UnicodeWidthChar;
 
 const TAB_SIZE: usize = 4;
 
-static ANSI_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").expect("valid regex")
-});
+static ANSI_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").expect("valid regex"));
 
 /// Strip ANSI escape codes from a string for plain-text searching/filtering.
 pub fn strip_ansi(s: &str) -> String {
@@ -57,7 +56,12 @@ pub fn parse_ansi_line(s: &str) -> Line<'static> {
     let spans: Vec<Span<'static>> = line
         .spans
         .into_iter()
-        .map(|span| Span::styled(expand_tabs_from(&span.content, TAB_SIZE, &mut col), span.style))
+        .map(|span| {
+            Span::styled(
+                expand_tabs_from(&span.content, TAB_SIZE, &mut col),
+                span.style,
+            )
+        })
         .collect();
     Line::from(spans).style(line.style)
 }

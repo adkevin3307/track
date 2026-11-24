@@ -34,13 +34,20 @@ pub enum InputSource {
 
 pub fn spawn_reader(source: InputSource, tx: Sender<ReaderEvent>) {
     thread::spawn(move || match source {
-        InputSource::Stdin => {
-            read_stream(BufReader::with_capacity(STREAM_BUFFER, io::stdin().lock()), tx)
-        }
-        InputSource::File { file, follow: false, .. } => {
-            read_stream(BufReader::with_capacity(STREAM_BUFFER, file), tx)
-        }
-        InputSource::File { file, path, follow: true } => follow_file(file, &path, tx),
+        InputSource::Stdin => read_stream(
+            BufReader::with_capacity(STREAM_BUFFER, io::stdin().lock()),
+            tx,
+        ),
+        InputSource::File {
+            file,
+            follow: false,
+            ..
+        } => read_stream(BufReader::with_capacity(STREAM_BUFFER, file), tx),
+        InputSource::File {
+            file,
+            path,
+            follow: true,
+        } => follow_file(file, &path, tx),
     });
 }
 
@@ -53,7 +60,10 @@ fn bytes_to_line(mut bytes: &[u8]) -> String {
         bytes = rest.strip_suffix(b"\r").unwrap_or(rest);
     }
     if bytes.contains(&b'\r') {
-        bytes = bytes.rsplit(|&b| b == b'\r').find(|seg| !seg.is_empty()).unwrap_or_default();
+        bytes = bytes
+            .rsplit(|&b| b == b'\r')
+            .find(|seg| !seg.is_empty())
+            .unwrap_or_default();
     }
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -199,7 +209,9 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
                 thread::sleep(FOLLOW_POLL_INTERVAL);
 
                 // A missing path is normal for a moment during rotation
-                let Ok(meta) = fs::metadata(path) else { continue };
+                let Ok(meta) = fs::metadata(path) else {
+                    continue;
+                };
                 let replaced = file_id(&meta) != id;
                 let truncated = !replaced && meta.len() < pos;
                 if !replaced && !truncated {
@@ -211,7 +223,9 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
                     if old_len > pos {
                         continue;
                     }
-                    let Ok(new_file) = File::open(path) else { continue };
+                    let Ok(new_file) = File::open(path) else {
+                        continue;
+                    };
                     id = new_file.metadata().ok().as_ref().and_then(file_id);
                     reader = BufReader::new(new_file);
                 } else if reader.seek(SeekFrom::Start(0)).is_err() {
@@ -289,7 +303,10 @@ mod tests {
 
     #[test]
     fn test_carriage_returns_keep_the_last_text() {
-        assert_eq!(bytes_to_line(b"\rprogress 10%\rprogress 100%\n"), "progress 100%");
+        assert_eq!(
+            bytes_to_line(b"\rprogress 10%\rprogress 100%\n"),
+            "progress 100%"
+        );
         assert_eq!(bytes_to_line(b"done\r\r\n"), "done");
         assert_eq!(bytes_to_line(b"windows line\r\n"), "windows line");
     }
@@ -302,13 +319,25 @@ mod tests {
         thread::spawn(move || read_stream(BufReader::new(r), tx));
         w.write_all(b"line before\nwaiting...").unwrap();
 
-        assert_eq!(next_event(&rx, false), ReaderEvent::Lines(vec!["line before".into()]));
-        assert_eq!(next_event(&rx, false), ReaderEvent::Partial("waiting...".into()));
+        assert_eq!(
+            next_event(&rx, false),
+            ReaderEvent::Lines(vec!["line before".into()])
+        );
+        assert_eq!(
+            next_event(&rx, false),
+            ReaderEvent::Partial("waiting...".into())
+        );
 
         w.write_all(b" done\nlast").unwrap();
         drop(w);
-        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["waiting... done".into()]));
-        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["last".into()]));
+        assert_eq!(
+            next_event(&rx, true),
+            ReaderEvent::Lines(vec!["waiting... done".into()])
+        );
+        assert_eq!(
+            next_event(&rx, true),
+            ReaderEvent::Lines(vec!["last".into()])
+        );
         assert_eq!(next_event(&rx, true), ReaderEvent::Eof);
     }
 
@@ -342,34 +371,54 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("app.log");
         let append = |s: &str| {
-            let mut f = fs::OpenOptions::new().append(true).create(true).open(&path).unwrap();
+            let mut f = fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&path)
+                .unwrap();
             f.write_all(s.as_bytes()).unwrap();
         };
 
         append("one\npart");
         let (tx, rx) = channel();
         spawn_reader(
-            InputSource::File { file: File::open(&path).unwrap(), path: path.clone(), follow: true },
+            InputSource::File {
+                file: File::open(&path).unwrap(),
+                path: path.clone(),
+                follow: true,
+            },
             tx,
         );
-        assert_eq!(next_event(&rx, false), ReaderEvent::Lines(vec!["one".into()]));
+        assert_eq!(
+            next_event(&rx, false),
+            ReaderEvent::Lines(vec!["one".into()])
+        );
         assert_eq!(next_event(&rx, false), ReaderEvent::Partial("part".into()));
 
         // Completing the partial line sends it as a complete line
         append("ial\n");
-        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["partial".into()]));
+        assert_eq!(
+            next_event(&rx, true),
+            ReaderEvent::Lines(vec!["partial".into()])
+        );
 
         // Truncation: start over from the beginning
         fs::write(&path, "").unwrap();
         assert!(matches!(next_event(&rx, true), ReaderEvent::Notice(n) if n.contains("truncated")));
         append("after truncate\n");
-        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["after truncate".into()]));
+        assert_eq!(
+            next_event(&rx, true),
+            ReaderEvent::Lines(vec!["after truncate".into()])
+        );
 
         // Rotation: the old file is renamed and a new one created at the same path
         fs::rename(&path, dir.join("app.log.1")).unwrap();
         append("rotated\n");
         assert!(matches!(next_event(&rx, true), ReaderEvent::Notice(n) if n.contains("rotated")));
-        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["rotated".into()]));
+        assert_eq!(
+            next_event(&rx, true),
+            ReaderEvent::Lines(vec!["rotated".into()])
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

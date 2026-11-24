@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
-use clap::builder::styling::{AnsiColor, Styles};
 use clap::CommandFactory;
 use clap::Parser;
+use clap::builder::styling::{AnsiColor, Styles};
 use crossterm::{
     cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -55,7 +55,13 @@ struct Cli {
     file: Option<PathBuf>,
 
     /// Maximum lines kept in memory; the oldest lines are dropped
-    #[arg(short = 'b', long = "buffer-lines", alias = "max-lines", value_name = "LINES", default_value_t = 100_000)]
+    #[arg(
+        short = 'b',
+        long = "buffer-lines",
+        alias = "max-lines",
+        value_name = "LINES",
+        default_value_t = 100_000
+    )]
     buffer_lines: usize,
 
     /// Start with line wrapping enabled
@@ -63,7 +69,13 @@ struct Cli {
     wrap: bool,
 
     /// Start with line numbers displayed
-    #[arg(short = 'N', long = "line-numbers", short_alias = 'l', alias = "numbers", default_value_t = false)]
+    #[arg(
+        short = 'N',
+        long = "line-numbers",
+        short_alias = 'l',
+        alias = "numbers",
+        default_value_t = false
+    )]
     show_numbers: bool,
 
     /// Read the input once instead of following it, and start at the top
@@ -87,7 +99,10 @@ struct Cli {
 fn open_input_file(path: &Path) -> io::Result<File> {
     let file = File::open(path)?;
     if file.metadata()?.is_dir() {
-        return Err(io::Error::new(io::ErrorKind::IsADirectory, "Is a directory"));
+        return Err(io::Error::new(
+            io::ErrorKind::IsADirectory,
+            "Is a directory",
+        ));
     }
     Ok(file)
 }
@@ -141,7 +156,13 @@ impl crossterm::Command for AlternateScroll {
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let mut writer = open_terminal_writer();
-    let _ = execute!(writer, MouseCapture(false), AlternateScroll(false), LeaveAlternateScreen, Show);
+    let _ = execute!(
+        writer,
+        MouseCapture(false),
+        AlternateScroll(false),
+        LeaveAlternateScreen,
+        Show
+    );
 }
 
 /// Puts the terminal into TUI mode and restores it when dropped, on every exit path.
@@ -228,7 +249,13 @@ fn main() -> io::Result<()> {
         }
     }
 
-    let mut app = App::new(source_name, args.buffer_lines, args.wrap, args.show_numbers, follow);
+    let mut app = App::new(
+        source_name,
+        args.buffer_lines,
+        args.wrap,
+        args.show_numbers,
+        follow,
+    );
     for event in first_events {
         apply_reader_event(&mut app, event);
     }

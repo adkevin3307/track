@@ -111,7 +111,10 @@ impl LineEditor {
     }
 
     fn prev_boundary(&self) -> Option<usize> {
-        self.text[..self.cursor].char_indices().next_back().map(|(i, _)| i)
+        self.text[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
     }
 
     fn next_boundary(&self) -> Option<usize> {

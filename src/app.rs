@@ -199,7 +199,10 @@ impl App {
         }
         if let Some(search) = &self.search {
             for view in first_new_view..self.total_display_lines() {
-                if self.get_line(view).is_some_and(|l| search.is_match(l.clean_text())) {
+                if self
+                    .get_line(view)
+                    .is_some_and(|l| search.is_match(l.clean_text()))
+                {
                     self.search_match_indices.push(view);
                 }
             }
@@ -214,15 +217,21 @@ impl App {
             let view_drop = if self.is_filtering() {
                 let filtered_drop = self.filtered_indices.partition_point(|&i| i < drop_count);
                 self.filtered_indices.drain(..filtered_drop);
-                self.filtered_indices.iter_mut().for_each(|i| *i -= drop_count);
+                self.filtered_indices
+                    .iter_mut()
+                    .for_each(|i| *i -= drop_count);
                 filtered_drop
             } else {
                 drop_count
             };
 
-            let match_drop = self.search_match_indices.partition_point(|&i| i < view_drop);
+            let match_drop = self
+                .search_match_indices
+                .partition_point(|&i| i < view_drop);
             self.search_match_indices.drain(..match_drop);
-            self.search_match_indices.iter_mut().for_each(|i| *i -= view_drop);
+            self.search_match_indices
+                .iter_mut()
+                .for_each(|i| *i -= view_drop);
             self.current_match_idx = self
                 .current_match_idx
                 .and_then(|c| c.checked_sub(match_drop));
@@ -412,7 +421,10 @@ impl App {
     fn bottom_line(&self) -> usize {
         let total = self.total_display_lines();
         if !self.wrap {
-            return self.vertical_offset.saturating_add(self.viewport_height).min(total);
+            return self
+                .vertical_offset
+                .saturating_add(self.viewport_height)
+                .min(total);
         }
         // The top line's rows above `row_offset` are scrolled past
         let mut rows = 0;
@@ -594,7 +606,10 @@ impl App {
         };
         let total = self.total_display_lines();
         let matches: Vec<usize> = (0..total)
-            .filter(|&v| self.get_line(v).is_some_and(|l| matcher.is_match(l.clean_text())))
+            .filter(|&v| {
+                self.get_line(v)
+                    .is_some_and(|l| matcher.is_match(l.clean_text()))
+            })
             .collect();
         self.preview_count = Some(matches.len());
         let top = self.vertical_offset;
@@ -626,7 +641,11 @@ impl App {
     pub fn submit_input(&mut self) {
         // Spaces are significant in patterns; an all-blank pattern counts as empty
         let text = self.editor.text();
-        let query = if text.trim().is_empty() { String::new() } else { text.to_string() };
+        let query = if text.trim().is_empty() {
+            String::new()
+        } else {
+            text.to_string()
+        };
         let mode = self.input_mode;
         self.input_mode = InputMode::Normal;
         self.editor.clear();
@@ -719,7 +738,10 @@ impl App {
         self.current_match_idx = None;
         if let Some(search) = &self.search {
             self.search_match_indices = (0..self.total_display_lines())
-                .filter(|&view| self.get_line(view).is_some_and(|l| search.is_match(l.clean_text())))
+                .filter(|&view| {
+                    self.get_line(view)
+                        .is_some_and(|l| search.is_match(l.clean_text()))
+                })
                 .collect();
         }
     }
@@ -757,7 +779,9 @@ impl App {
             Some(curr) => Some(curr + 1).filter(|&i| i < self.search_match_indices.len()),
             None => {
                 let top = self.vertical_offset;
-                self.search_match_indices.iter().position(|&line| line >= top)
+                self.search_match_indices
+                    .iter()
+                    .position(|&line| line >= top)
             }
         };
         let idx = next.unwrap_or_else(|| {
@@ -776,7 +800,9 @@ impl App {
             Some(curr) => curr.checked_sub(1),
             None => {
                 let bottom = self.bottom_line();
-                self.search_match_indices.iter().rposition(|&line| line < bottom)
+                self.search_match_indices
+                    .iter()
+                    .rposition(|&line| line < bottom)
             }
         };
         let idx = prev.unwrap_or_else(|| {
@@ -789,7 +815,11 @@ impl App {
     /// Jump to the first match from the top of the screen (after a new search).
     fn jump_to_first_visible_match(&mut self) {
         let top = self.vertical_offset;
-        let idx = self.search_match_indices.iter().position(|&line| line >= top).unwrap_or(0);
+        let idx = self
+            .search_match_indices
+            .iter()
+            .position(|&line| line >= top)
+            .unwrap_or(0);
         self.jump_to_match(idx);
     }
 
@@ -852,7 +882,9 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.status_message = None;
                 self.cancel_selection();
-                if self.log_area.contains(Position::new(mouse.column, mouse.row))
+                if self
+                    .log_area
+                    .contains(Position::new(mouse.column, mouse.row))
                     && let Some(at) = self.text_pos_at(mouse.column, mouse.row)
                 {
                     self.selection = Some(Selection::new(at, self.following));
@@ -921,13 +953,17 @@ impl App {
         }
         let row = (y.clamp(area.y, area.bottom() - 1) - area.y) as usize;
         let (view, col) = match self.screen_rows.get(row) {
-            Some(&(view, col_start)) => {
-                (view, col_start + (x.clamp(area.x, area.right() - 1) - area.x) as usize)
-            }
+            Some(&(view, col_start)) => (
+                view,
+                col_start + (x.clamp(area.x, area.right() - 1) - area.x) as usize,
+            ),
             // Below the last line: its end
             None => (last_view, usize::MAX / 2),
         };
-        Some(TextPos { line: self.absolute_line(view)?, col })
+        Some(TextPos {
+            line: self.absolute_line(view)?,
+            col,
+        })
     }
 
     /// The selected text of the lines still shown, one log line per text line.
@@ -936,11 +972,15 @@ impl App {
         let first_real = start.line.saturating_sub(self.dropped_lines);
         let mut lines = Vec::new();
         for view in self.real_to_view(first_real)..self.total_display_lines() {
-            let Some(line) = self.absolute_line(view) else { break };
+            let Some(line) = self.absolute_line(view) else {
+                break;
+            };
             if line > end.line {
                 break;
             }
-            let Some((from, to)) = sel.columns(line) else { continue };
+            let Some((from, to)) = sel.columns(line) else {
+                continue;
+            };
             if let Some(log_line) = self.get_line(view) {
                 lines.push(slice_columns(log_line.clean_text(), from, to));
             }
@@ -961,7 +1001,12 @@ mod tests {
     }
 
     fn mouse(app: &mut App, kind: MouseEventKind, column: u16, row: u16) -> Option<String> {
-        app.on_mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE })
+        app.on_mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
     }
 
     #[test]
@@ -1173,7 +1218,10 @@ mod tests {
 
         submit(&mut app, InputMode::Search, "error");
 
-        assert_eq!(app.search.as_ref().map(|s| s.pattern.as_str()), Some("error"));
+        assert_eq!(
+            app.search.as_ref().map(|s| s.pattern.as_str()),
+            Some("error")
+        );
         assert_eq!(app.search_match_indices, vec![2, 4]);
 
         // Jumps through matches
@@ -1191,7 +1239,13 @@ mod tests {
     #[test]
     fn test_n_searches_from_view_after_scrolling() {
         let lines: Vec<String> = (0..100)
-            .map(|i| if i % 10 == 0 { format!("hit {i}") } else { i.to_string() })
+            .map(|i| {
+                if i % 10 == 0 {
+                    format!("hit {i}")
+                } else {
+                    i.to_string()
+                }
+            })
             .collect();
         let mut app = App::new("test".to_string(), 1000, false, false, false);
         app.viewport_height = 10;
@@ -1223,7 +1277,12 @@ mod tests {
     fn test_jump_without_search_sets_message() {
         let mut app = app_with(&["a", "b"]);
         app.jump_to_next_match();
-        assert!(app.status_message.as_deref().unwrap().contains("No active search"));
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap()
+                .contains("No active search")
+        );
 
         submit(&mut app, InputMode::Search, "zzz");
         assert!(app.status_message.as_deref().unwrap().contains("not found"));
@@ -1289,7 +1348,10 @@ mod tests {
 
         // New lines are matched against the whole stack
         app.add_lines(vec!["GET /health 500".into(), "GET /d 200".into()]);
-        assert_eq!(view_texts(&app), vec!["GET /a 200", "GET /b 500", "GET /d 200"]);
+        assert_eq!(
+            view_texts(&app),
+            vec!["GET /a 200", "GET /b 500", "GET /d 200"]
+        );
 
         // Esc removes the most recent filter first
         app.clear_last_search_or_filter();
@@ -1344,7 +1406,9 @@ mod tests {
 
     #[test]
     fn test_filter_changes_keep_position_when_paused() {
-        let lines: Vec<String> = (0..100).map(|i| format!("{} {}", if i % 2 == 0 { "even" } else { "odd" }, i)).collect();
+        let lines: Vec<String> = (0..100)
+            .map(|i| format!("{} {}", if i % 2 == 0 { "even" } else { "odd" }, i))
+            .collect();
         let mut app = App::new("test".to_string(), 1000, false, false, true);
         app.viewport_height = 10;
         app.add_lines(lines);
@@ -1396,7 +1460,12 @@ mod tests {
         assert_eq!(app.vertical_offset, 70 - 51 - 5);
 
         submit(&mut app, InputMode::Goto, "10");
-        assert!(app.status_message.as_deref().unwrap().contains("no longer in the buffer"));
+        assert!(
+            app.status_message
+                .as_deref()
+                .unwrap()
+                .contains("no longer in the buffer")
+        );
         submit(&mut app, InputMode::Goto, "abc");
         assert!(app.status_message.as_deref().unwrap().contains("Invalid"));
     }
