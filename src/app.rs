@@ -84,6 +84,9 @@ pub struct App {
     pub filtered_indices: Vec<usize>,
     pub search_match_indices: Vec<usize>,
     pub current_match_idx: Option<usize>,
+    /// Scroll position right after the last jump to a match; once the view moves away,
+    /// n / N search from the screen instead of from the current match.
+    match_jump_pos: Option<(usize, usize)>,
 }
 
 impl App {
@@ -128,6 +131,7 @@ impl App {
             filtered_indices: Vec::new(),
             search_match_indices: Vec::new(),
             current_match_idx: None,
+            match_jump_pos: None,
         }
     }
 
@@ -202,6 +206,9 @@ impl App {
                 self.row_offset = 0;
             }
             self.vertical_offset = self.vertical_offset.saturating_sub(view_drop);
+            self.match_jump_pos = self
+                .match_jump_pos
+                .and_then(|(line, row)| Some((line.checked_sub(view_drop)?, row)));
         }
 
         if self.following {
@@ -369,6 +376,24 @@ impl App {
             }
         }
         (line, row)
+    }
+
+    /// One past the last view line on screen.
+    fn bottom_line(&self) -> usize {
+        let total = self.total_display_lines();
+        if !self.wrap {
+            return self.vertical_offset.saturating_add(self.viewport_height).min(total);
+        }
+        // The top line's rows above `row_offset` are scrolled past
+        let mut rows = 0;
+        let mut skip = self.row_offset;
+        let mut line = self.vertical_offset;
+        while line < total && rows < self.viewport_height {
+            rows += self.line_rows(line).saturating_sub(skip);
+            skip = 0;
+            line += 1;
+        }
+        line
     }
 
     pub fn is_at_bottom(&self) -> bool {
@@ -582,7 +607,7 @@ impl App {
                 let label = self.search.as_ref().map(Matcher::label).unwrap_or_default();
                 self.status_message = Some(format!("Pattern not found: {label}"));
             } else {
-                self.jump_to_next_match();
+                self.jump_to_first_visible_match();
             }
         }
     }
@@ -638,43 +663,61 @@ impl App {
         }
     }
 
+    /// The current match, if the view hasn't moved since jumping to it.
+    fn match_cursor(&self) -> Option<usize> {
+        self.current_match_idx
+            .filter(|_| self.match_jump_pos == Some(self.position()))
+    }
+
+    /// n: the match after the current one, or the first one from the top of the screen.
     pub fn jump_to_next_match(&mut self) {
         if !self.check_can_jump() {
             return;
         }
-        let count = self.search_match_indices.len();
-        let next_idx = match self.current_match_idx {
-            Some(curr) if curr + 1 < count => curr + 1,
-            Some(_) => {
-                self.status_message = Some("Search hit BOTTOM, continuing at TOP".to_string());
-                0
+        let next = match self.match_cursor() {
+            Some(curr) => Some(curr + 1).filter(|&i| i < self.search_match_indices.len()),
+            None => {
+                let top = self.vertical_offset;
+                self.search_match_indices.iter().position(|&line| line >= top)
             }
-            // Find first match at or after the current position
-            None => self
-                .search_match_indices
-                .iter()
-                .position(|&line_idx| line_idx >= self.vertical_offset)
-                .unwrap_or(0),
         };
-        self.current_match_idx = Some(next_idx);
-        self.jump_to_line(self.search_match_indices[next_idx]);
+        let idx = next.unwrap_or_else(|| {
+            self.status_message = Some("Search hit BOTTOM, continuing at TOP".to_string());
+            0
+        });
+        self.jump_to_match(idx);
     }
 
+    /// N: the match before the current one, or the last one from the bottom of the screen.
     pub fn jump_to_prev_match(&mut self) {
         if !self.check_can_jump() {
             return;
         }
-        let count = self.search_match_indices.len();
-        let prev_idx = match self.current_match_idx {
-            Some(curr) if curr > 0 => (curr - 1).min(count - 1),
-            Some(_) => {
-                self.status_message = Some("Search hit TOP, continuing at BOTTOM".to_string());
-                count - 1
+        let prev = match self.match_cursor() {
+            Some(curr) => curr.checked_sub(1),
+            None => {
+                let bottom = self.bottom_line();
+                self.search_match_indices.iter().rposition(|&line| line < bottom)
             }
-            None => count - 1,
         };
-        self.current_match_idx = Some(prev_idx);
-        self.jump_to_line(self.search_match_indices[prev_idx]);
+        let idx = prev.unwrap_or_else(|| {
+            self.status_message = Some("Search hit TOP, continuing at BOTTOM".to_string());
+            self.search_match_indices.len() - 1
+        });
+        self.jump_to_match(idx);
+    }
+
+    /// Jump to the first match from the top of the screen (after a new search).
+    fn jump_to_first_visible_match(&mut self) {
+        let top = self.vertical_offset;
+        let idx = self.search_match_indices.iter().position(|&line| line >= top).unwrap_or(0);
+        self.jump_to_match(idx);
+    }
+
+    fn jump_to_match(&mut self, idx: usize) {
+        self.current_match_idx = Some(idx);
+        self.jump_to_line(self.search_match_indices[idx]);
+        self.match_jump_pos = Some(self.position());
     }
 
     /// Jump to an absolute (1-based) input line number.
@@ -910,6 +953,37 @@ mod tests {
 
         app.jump_to_prev_match();
         assert_eq!(app.current_match_idx, Some(1)); // wraps back to line 4
+    }
+
+    #[test]
+    fn test_n_searches_from_view_after_scrolling() {
+        let lines: Vec<String> = (0..100)
+            .map(|i| if i % 10 == 0 { format!("hit {i}") } else { i.to_string() })
+            .collect();
+        let mut app = App::new("test".to_string(), 1000, false, false, false);
+        app.viewport_height = 10;
+        app.add_lines(lines);
+
+        submit(&mut app, InputMode::Search, "hit");
+        assert_eq!(app.current_match_idx, Some(0));
+        app.jump_to_next_match();
+        assert_eq!(app.current_match_idx, Some(1)); // line 10, view top 5
+
+        // Scrolled away: n continues from the top of the screen, not from line 10
+        app.scroll_down(60); // top 65
+        app.jump_to_next_match();
+        assert_eq!(app.search_match_indices[app.current_match_idx.unwrap()], 70);
+        assert!(app.status_message.is_none());
+
+        // Scrolled away: N continues from the bottom of the screen
+        app.scroll_to_top();
+        app.scroll_down(42); // lines 42..52 on screen
+        app.jump_to_prev_match();
+        assert_eq!(app.search_match_indices[app.current_match_idx.unwrap()], 50);
+
+        // Without scrolling, n / N step from the current match
+        app.jump_to_prev_match();
+        assert_eq!(app.search_match_indices[app.current_match_idx.unwrap()], 40);
     }
 
     #[test]
