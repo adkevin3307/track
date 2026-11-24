@@ -12,7 +12,7 @@ any configuration.
 > assistants implemented it, checked it, and committed each change.
 
 ```
- track  app.log  following                                                             1-8/8 · 100%
+ track  app.log  following                                                                 10 lines
 ╭ Log  filter: !health  8 of 10 lines ──────────────────────────────────────────────── /error  1/2 ╮
 │  1 │ 2026-11-24 10:00:01 INFO  api     server listening on 0.0.0.0:8080                          │
 │  2 │ 2026-11-24 10:00:02 INFO  db      connected to postgres://db:5432/app (pool=16)             │
@@ -24,7 +24,7 @@ any configuration.
 │ 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443          │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- q quit  ? help  / search  & filter  n/N next/prev  f follow  w wrap  # numbers  : line
+ j/k scroll  / search  n/N next/prev  & filter  : line  f follow  w wrap  # numbers  ? help  q quit
 ```
 
 *(`track -N app.log` with the filter `&!health` and the search `/error`.)*
@@ -139,19 +139,20 @@ my-command 2>&1 | track          # stdout and stderr
 ## Layout
 
 ```
- track  source  following  wrap                                      1-40/812 · 5%
+ track  source  following  wrap                                          812 lines
 ╭ Log  filter: … & …  N of M lines  ← col C ──────────────────── /search  1/12 ╮
-│  1 │ log lines, scrolled sideways or wrapped                                  │
-│  2 │ (line numbers in the gutter with #)                                      │
-╰──────────────────────────────────────────────────────────────────────────────╯
+│  1 │ log lines, scrolled sideways or wrapped                                  █
+│  2 │ (line numbers in the gutter with #)                                      ║
+╰─────────────────────────────────────────────────────────────────── 1-40/812 ╯
  key hints or a status message (the / & : prompts open in a box at the top)
 ```
 
 The header shows the input, the follow state (`following`, `paused · N below`
-or `end of input`), whether wrapping is on, and the visible range. The log
-panel's title shows the active filters and how many lines they keep, the
+or `end of input`), whether wrapping is on, and how many lines were read. The
+log panel's title shows the active filters and how many lines they keep, the
 column when scrolled sideways, and, on the right, the search and the current
-match.
+match. When the lines don't fit, a scrollbar runs down the right border and
+the visible range is on the bottom border, as in monitor and git-graph.
 
 ## Keys
 
@@ -257,6 +258,29 @@ they move between panes and jump to HEAD).
 - Matches are highlighted in black on yellow. `esc` hides the highlights but
   keeps the search (the title then says `hidden`), like vim's `:noh`; `n` / `N`
   show them again and jump to the next / previous match.
+### Shared screen layout
+
+All three draw the same frame:
+
+```
+ tool  what it shows  state · flags that are on              tool-specific info
+╭ Panel  details ─────────────────────────────────────── /search  current/total ╮
+│ content                                                                       █
+│                                                                               ║
+╰──────────────────────────────────────────────────────────────────── 1-24/812 ╯
+ j/k move  / search  n/N next/prev  tool keys…  esc back  ? help  q quit
+```
+
+- The header starts with the tool's name on a cyan badge; flags appear only
+  while they are on (e.g. `wrap`, `diff · bell · wrap`).
+- Panels have rounded borders; the focused one is cyan.
+- A panel whose content doesn't fit has a scrollbar on its right border (cyan
+  thumb on a gray track) and the visible range on its bottom border.
+- The footer lists keys in the same order everywhere: movement, search, the
+  tool's own keys, `esc` back where it applies, then `? help` and `q quit`.
+  Keys are cyan and their descriptions gray; on a narrow terminal the tool's
+  own keys are dropped first, so help and quit always stay visible. A status
+  message (yellow) replaces the hints until the next key.
 
 ## Copying text
 

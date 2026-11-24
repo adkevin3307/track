@@ -1,9 +1,12 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    widgets::{
+        Block, BorderType, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
 };
 
 use crate::app::{App, InputMode};
@@ -75,17 +78,10 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled("  wrap", Style::new().fg(DIM)));
     }
 
-    let total = app.total_display_lines();
-    let position = if total == 0 {
-        "0 lines ".to_string()
-    } else {
-        let pct = (app.visible_end * 100).checked_div(total).unwrap_or(100);
-        format!(
-            "{}-{}/{} · {pct}% ",
-            app.visible_start + 1,
-            app.visible_end,
-            total
-        )
+    // Like monitor's host and git-graph's commit count: the input size on the right
+    let position = match app.lines.len() + app.dropped_lines {
+        1 => "1 line ".to_string(),
+        n => format!("{n} lines "),
     };
     let used: usize = spans.iter().map(Span::width).sum();
     let width = area.width as usize;
@@ -270,6 +266,16 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     f.render_widget(Paragraph::new(content), content_area);
+    let visible = app.visible_end - app.visible_start;
+    draw_scroll(
+        f,
+        area,
+        app.vertical_offset,
+        visible,
+        total_lines,
+        app.visible_start + 1,
+        app.visible_end,
+    );
 }
 
 fn styled_line(app: &App, view_index: usize, highlight: Option<&Matcher>) -> Line<'static> {
@@ -332,35 +338,87 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
     rows
 }
 
-/// `key desc  key desc` hints: keys in the accent color, descriptions dimmed.
-fn key_hints(keys: &[(&str, &str)]) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
+/// Footer key hints, the same in track, monitor and git-graph: movement, search,
+/// the tool's own keys, then `? help` and `q quit` last. When the line is too
+/// narrow, the tool's own keys are dropped from the end first, so help and quit
+/// always stay visible.
+fn footer_hints(keys: &[(&str, &str)], width: u16) -> Line<'static> {
+    let hint_width = |(k, v): &(&str, &str)| Line::raw(*k).width() + Line::raw(*v).width() + 3;
+    let mut keys = keys.to_vec();
+    while keys.len() > 2 && 1 + keys.iter().map(hint_width).sum::<usize>() > width as usize {
+        keys.remove(keys.len() - 3);
+    }
+    let mut spans = vec![Span::raw(" ")];
     for (k, v) in keys {
         spans.push(Span::styled(k.to_string(), Style::new().fg(ACCENT)));
         spans.push(Span::styled(format!(" {v}  "), Style::new().fg(DIM)));
     }
-    spans
+    Line::from(spans)
+}
+
+/// A scrollbar on the right border of a panel and the visible range (`first`-`last`
+/// of `total`, 1-based) on its bottom border, the same in track, monitor and
+/// git-graph. Nothing is drawn when everything fits.
+fn draw_scroll(
+    f: &mut Frame,
+    panel: Rect,
+    offset: usize,
+    visible: usize,
+    total: usize,
+    first: usize,
+    last: usize,
+) {
+    if total <= visible || panel.height < 3 {
+        return;
+    }
+    let mut state = ScrollbarState::new(total - visible)
+        .position(offset)
+        .viewport_content_length(visible);
+    f.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .thumb_style(Style::new().fg(ACCENT))
+            .track_style(Style::new().fg(DIM)),
+        panel.inner(Margin {
+            vertical: 1,
+            horizontal: 0,
+        }),
+        &mut state,
+    );
+    let range = Line::styled(format!(" {first}-{last}/{total} "), Style::new().fg(DIM));
+    let bottom = Rect {
+        y: panel.bottom() - 1,
+        height: 1,
+        ..panel
+    };
+    f.render_widget(
+        range.right_aligned(),
+        bottom.inner(Margin {
+            vertical: 0,
+            horizontal: 1,
+        }),
+    );
 }
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let line = match &app.status_message {
         Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
-        None => {
-            // Ordered by importance so narrow terminals clip the least useful
-            let mut spans = vec![Span::raw(" ")];
-            spans.extend(key_hints(&[
-                ("q", "quit"),
-                ("?", "help"),
+        None => footer_hints(
+            &[
+                ("j/k", "scroll"),
                 ("/", "search"),
-                ("&", "filter"),
                 ("n/N", "next/prev"),
+                ("&", "filter"),
+                (":", "line"),
                 ("f", "follow"),
                 ("w", "wrap"),
                 ("#", "numbers"),
-                (":", "line"),
-            ]));
-            Line::from(spans)
-        }
+                ("?", "help"),
+                ("q", "quit"),
+            ],
+            area.width,
+        ),
     };
     f.render_widget(line, area);
 }
@@ -416,11 +474,11 @@ fn draw_input(
     cursor: usize,
     info: Option<Span<'static>>,
     hints: &[(&str, &str)],
-) {
+) -> Option<Rect> {
     let full = f.area();
     let width = full.width.saturating_sub(4).min(60);
     if width < 10 || full.height < 3 {
-        return;
+        return None;
     }
     let area = Rect {
         x: full.x + (full.width - width) / 2,
@@ -472,6 +530,7 @@ fn draw_input(
     if let Some(info) = info {
         f.render_widget(Line::from(info).right_aligned(), info_area);
     }
+    Some(area)
 }
 
 const HELP_ROWS: &[(&str, &str)] = &[
