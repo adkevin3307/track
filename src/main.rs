@@ -390,7 +390,6 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         if ctrl {
             match c {
                 'c' => return Ok(true),
-                'l' => terminal.clear()?,
                 'u' => app.scroll_half_page_up(),
                 'd' => app.scroll_half_page_down(),
                 'b' => app.scroll_page_up(),
@@ -404,6 +403,10 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
     match (key.modifiers, key.code) {
         (_, KeyCode::Char('q')) => {
             return Ok(true);
+        }
+        // Refresh: redraw the whole screen (other programs may have written over it)
+        (_, KeyCode::Char('r')) => {
+            terminal.clear()?;
         }
         // Wrap toggle
         (_, KeyCode::Char('w')) => {

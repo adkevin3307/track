@@ -37,7 +37,7 @@ any configuration.
   live and updated in place. See [Piping](#piping).
 - **Follow mode, like `tail -F`.** Files and pipes are followed by default.
   Scrolling up pauses (`paused · N below`); scrolling back to the bottom or
-  pressing `f`/`G` resumes. Truncated and rotated log files are detected and
+  pressing `G` resumes. Truncated and rotated log files are detected and
   reopened.
 - **Horizontal scrolling** through wide lines, measured in display columns
   so tabs, CJK and emoji line up.
@@ -126,7 +126,7 @@ my-command 2>&1 | track          # stdout and stderr
 
 - **Use `2>&1` to see stderr.** Without it, the command's stderr bypasses the
   pipe and is written straight onto the terminal, drawing over `track`'s
-  screen (`ctrl-l` redraws).
+  screen (`r` refreshes it).
 - **`track` starts at the first complete line**, so the command can still ask
   for a password or other input in the terminal before that.
 - **After quitting**, the shell returns once the piped command exits or writes
@@ -152,56 +152,63 @@ or `end of input`), whether wrapping is on, and how many lines were read. The
 log panel's title shows the active filters and how many lines they keep, the
 column when scrolled sideways, and, on the right, the search and the current
 match. When the lines don't fit, a scrollbar runs down the right border, as in
-monitor and git-graph. While following is paused, the footer shows `G follow`.
+monitor and git-graph. Going up pauses following; `G` (bottom) resumes it.
 
 ## Keys
 
-Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit; any
-other key closes it).
+Press `?` in the app for this list (`j`/`k` or the wheel scroll it when it
+doesn't fit; any other key closes it). The keys and their wording are the
+same in track, monitor and git-graph (see the shared key guideline below).
 
 **Navigation**
 
 | Key | Action |
 |---|---|
-| `j`/`k`, `↓`/`↑` | Scroll one line (one screen row in wrap mode); scrolling up pauses follow |
-| `ctrl-d`/`ctrl-u` | Half page |
-| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Full page |
+| `j`/`k`, `↓`/`↑` | Down / up (one row when wrapping; going up pauses following) |
+| `ctrl-d`/`ctrl-u` | Half page down / up |
+| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Page down / up |
 | `g` / `G` | Top / bottom (`G` resumes following) |
+| `h`/`l`, `←`/`→` | Left / right 4 columns (when not wrapping) |
+| `H`/`L` | Left / right half a page (when not wrapping) |
+| `home` / `end` | Line start / end (when not wrapping) |
 | `:` | Go to line number |
-| `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
-| `H`/`L` | Scroll sideways half a page |
-| `home` / `end` | Line start / end of the longest visible line |
-| mouse wheel | Scroll (hold `ctrl` to scroll faster) |
-| mouse drag | Select text; it's copied to the clipboard when you release |
-| shift + drag | Your terminal's own text selection |
 
 **Search & filter**
 
 | Key | Action |
 |---|---|
-| `/` | Search (regex, smart case; highlights and jumps while typing) |
-| `n` / `N` | Next / previous match (from the screen after scrolling away); shows hidden highlights |
+| `/` | Search (regex, smart case) |
+| `n` / `N` | Next / previous match |
 | `&` | Add a filter: show only matching lines (filters stack) |
-| `&` then `!pattern` | Add an exclude filter: hide matching lines |
-| `&` then `enter` (empty) | Clear all filters |
-| `esc` | Hide the search highlights first, then remove the most recent filter |
+| `&` then `!pattern` | Add a filter: hide matching lines |
+| `&` then `enter` (empty) | Remove all filters |
+| `esc` | Hide search highlights, then remove the last filter |
 
-**Prompt editing** (in the `/`, `&` and `:` input boxes)
+**Input box** (the `/`, `&` and `:` boxes)
 
 | Key | Action |
 |---|---|
 | `←`/`→`, `home`/`end`, `ctrl-a`/`ctrl-e` | Move the cursor |
-| `ctrl-u` / `ctrl-w` | Delete to start of line / previous word |
-| `↑`/`↓` | Browse search / filter history |
-| `enter` / `esc` | Submit / cancel (`backspace` on an empty prompt also cancels) |
+| `ctrl-u` / `ctrl-w` | Delete to start / previous word |
+| `↑`/`↓` | History |
+| `enter` | Submit |
+| `esc`, `ctrl-c` | Cancel (`backspace` on an empty box too) |
 
-**Display & general**
+**Mouse**
 
 | Key | Action |
 |---|---|
-| `w` | Toggle soft wrap |
+| wheel | Scroll (`ctrl`: faster) |
+| drag | Select text; copied on release (OSC 52) |
+| shift + drag | The terminal's own selection |
+
+**General**
+
+| Key | Action |
+|---|---|
+| `w` | Toggle wrap |
 | `#` | Toggle line numbers |
-| `ctrl-l` | Redraw the screen |
+| `r` | Refresh (redraw the screen) |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |
 
@@ -212,15 +219,17 @@ keys do the same thing in all three:
 
 | Key | Meaning |
 |---|---|
-| `j`/`k`, `↓`/`↑` | One line down / up |
-| `ctrl-d`/`ctrl-u` | Half a page down / up |
-| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | A full page down / up |
+| `j`/`k`, `↓`/`↑` | Down / up |
+| `ctrl-d`/`ctrl-u` | Half page down / up |
+| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | Page down / up |
 | `g` / `G` | Top / bottom |
-| `h`/`l` | Sideways 4 columns |
-| `H`/`L` | Sideways half a page |
+| `h`/`l` | Left / right 4 columns |
+| `H`/`L` | Left / right half a page |
 | `home` / `end` | Line start / end (not top / bottom) |
-| `/`, `n` / `N` | Search, next / previous match |
-| `esc` | Hide the search highlights, then go back |
+| `/`, `n` / `N` | Search (regex, smart case), next / previous match |
+| `esc` | Hide search highlights, then go back |
+| `w` | Toggle wrap (track, monitor) |
+| `r` | Refresh: redraw the screen, and run the command again (monitor) or reload the repository (git-graph) |
 | `?` | Help, in the same window everywhere (`j`/`k` or the wheel scroll it; any other key closes it) |
 | `q`, `ctrl-c` | Quit (in an input box, `ctrl-c` cancels it like `esc`) |
 | mouse wheel | Scroll (`ctrl` + wheel: faster) |
@@ -266,7 +275,7 @@ All three draw the same frame:
 │ content                                                                       █
 │                                                                               ║
 ╰──────────────────────────────────────────────────────────────────────────────╯
- j/k move  / search  n/N next/prev  tool keys…  esc back  ? help  q quit
+ j/k down/up  g/G top/bottom  / search  n/N next/prev  tool keys…  esc back  ? help  q quit
 ```
 
 - The header starts with the tool's name on a cyan badge; flags appear only

@@ -383,22 +383,20 @@ fn draw_scroll(
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let line = match &app.status_message {
         Some(msg) => Line::styled(format!(" {msg}"), Style::new().fg(YELLOW)),
-        None => {
-            // While paused, G resumes following (scrolling up pauses it).
-            let mut keys = vec![("j/k", "scroll")];
-            if !app.following && !app.eof {
-                keys.push(("G", "follow"));
-            }
-            keys.extend([
+        // The same words as monitor's and git-graph's footers.
+        None => footer_hints(
+            &[
+                ("j/k", "down/up"),
+                ("g/G", "top/bottom"),
                 ("/", "search"),
                 ("n/N", "next/prev"),
                 ("&", "filter"),
                 ("w", "wrap"),
                 ("?", "help"),
                 ("q", "quit"),
-            ]);
-            footer_hints(&keys, area.width)
-        }
+            ],
+            area.width,
+        ),
     };
     f.render_widget(line, area);
 }
@@ -513,42 +511,39 @@ fn draw_input(
     Some(area)
 }
 
+// The same sections and wording as monitor's and git-graph's help.
 const HELP_ROWS: &[(&str, &str)] = &[
     ("Navigation", ""),
-    ("j/k ↑/↓", "scroll one line (one row when wrapping)"),
-    ("ctrl-d/u", "half page"),
-    ("PgDn/PgUp, ctrl-f/b", "full page"),
+    ("j/k ↓/↑", "down / up (one row when wrapping)"),
+    ("ctrl-d/u", "half page down / up"),
+    ("PgDn/PgUp, ctrl-f/b", "page down / up"),
     ("g/G", "top / bottom (G resumes following)"),
+    ("h/l ←/→", "left / right 4 columns (when not wrapping)"),
+    ("H/L", "left / right half a page (when not wrapping)"),
+    ("home/end", "line start / end (when not wrapping)"),
     (":", "go to line number"),
-    ("mouse wheel", "scroll (ctrl: faster)"),
-    (
-        "mouse drag",
-        "select text; copied to the clipboard on release",
-    ),
-    ("shift-drag", "the terminal's own selection"),
-    ("h/l ←/→", "scroll sideways 4 columns"),
-    ("H/L", "scroll sideways half a page"),
-    ("home/end", "line start / end of the longest visible line"),
     ("Search & filter", ""),
-    ("/", "search: regex, smart case; jumps while typing"),
-    ("n / N", "next / previous match; shows hidden highlights"),
-    (
-        "&",
-        "add a filter: show only matching lines (filters stack)",
-    ),
-    ("& !pattern", "add an exclude filter: hide matching lines"),
-    ("& enter (empty)", "clear all filters"),
+    ("/", "search (regex, smart case)"),
+    ("n / N", "next / previous match"),
+    ("&", "add a filter: show only matching lines"),
+    ("& !pattern", "add a filter: hide matching lines"),
+    ("& enter (empty)", "remove all filters"),
     ("esc", "hide search highlights, then remove the last filter"),
-    ("Prompts", ""),
+    ("Input box", ""),
     ("←/→ home/end ctrl-a/e", "move the cursor"),
     ("ctrl-u / ctrl-w", "delete to start / previous word"),
-    ("↑/↓", "search / filter history"),
-    ("enter / esc", "submit / cancel"),
-    ("Display", ""),
-    ("w", "toggle soft wrap"),
-    ("#", "toggle line numbers"),
-    ("ctrl-l", "redraw the screen"),
+    ("↑/↓", "history"),
+    ("enter", "submit"),
+    ("esc, ctrl-c", "cancel"),
+    ("Mouse", ""),
+    ("wheel", "scroll (ctrl: faster)"),
+    ("drag", "select text; copied on release"),
+    ("shift-drag", "the terminal's own selection"),
     ("General", ""),
+    ("w", "toggle wrap"),
+    ("#", "toggle line numbers"),
+    ("r", "refresh (redraw the screen)"),
+    ("?", "help"),
     ("q, ctrl-c", "quit"),
 ];
 
