@@ -21,7 +21,10 @@ use crossterm::{
     cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
+        enable_raw_mode,
+    },
     tty::IsTty,
 };
 use ratatui::Terminal;
@@ -406,7 +409,8 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         }
         // Refresh: redraw the whole screen (other programs may have written over it)
         (_, KeyCode::Char('r')) => {
-            terminal.clear()?;
+            refresh_screen(terminal)?;
+            app.status_message = Some("Refreshed".to_string());
         }
         // Wrap toggle
         (_, KeyCode::Char('w')) => {
@@ -484,6 +488,16 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         _ => {}
     }
     Ok(false)
+}
+
+/// Redraws the whole screen (r: refresh), the same in track, monitor and git-graph.
+/// Unlike `Terminal::clear`, this doesn't ask the terminal for the cursor position
+/// (`\e[6n`), so a terminal that doesn't answer can't make it fail.
+fn refresh_screen(terminal: &mut Tui) -> io::Result<()> {
+    execute!(terminal.backend_mut(), Clear(ClearType::All))?;
+    // An empty frame first, so the next frame repaints every cell.
+    terminal.draw(|_| {})?;
+    Ok(())
 }
 
 fn handle_prompt_key(app: &mut App, key: KeyEvent) {
