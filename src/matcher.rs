@@ -26,7 +26,7 @@ impl Matcher {
             return None;
         }
 
-        let case_insensitive = !pattern.chars().any(char::is_uppercase);
+        let case_insensitive = !has_uppercase(pattern);
         let build = |p: &str| {
             RegexBuilder::new(p)
                 .case_insensitive(case_insensitive)
@@ -76,6 +76,29 @@ impl Matcher {
     }
 }
 
+/// Smart case: does the pattern contain an uppercase letter to match? Regex syntax
+/// doesn't count: the letter of an escape such as `\W`, `\S`, `\D` or `\B`, and the
+/// class name in `\p{Lu}` or `\PL`.
+fn has_uppercase(pattern: &str) -> bool {
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            if c.is_uppercase() {
+                return true;
+            }
+            continue;
+        }
+        if let Some('p' | 'P') = chars.next() {
+            if chars.clone().next() == Some('{') {
+                chars.by_ref().find(|&c| c == '}');
+            } else {
+                chars.next();
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,6 +110,20 @@ mod tests {
         let upper = Matcher::new("Error", false).unwrap();
         assert!(!upper.is_match("ERROR: disk"));
         assert!(upper.is_match("Error: disk"));
+        // Escapes and class names are syntax, not uppercase letters to match.
+        for (pattern, text) in [
+            (r"\Werror", " ERROR"),
+            (r"\Serror", "xERROR"),
+            (r"\d+ err\B", "1 ERROR"),
+            (r"\p{Lu}rror", "ERROR"),
+            (r"\PLrror", "1RROR"),
+        ] {
+            assert!(
+                Matcher::new(pattern, false).unwrap().is_match(text),
+                "{pattern}"
+            );
+        }
+        assert!(!Matcher::new(r"\WError", false).unwrap().is_match(" ERROR"));
     }
 
     #[test]

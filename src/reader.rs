@@ -1,7 +1,7 @@
 use std::fs::{self, File, Metadata};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::SyncSender;
 use std::thread;
 use std::time::Duration;
 
@@ -32,8 +32,13 @@ pub enum InputSource {
     },
 }
 
-pub fn spawn_reader(source: InputSource, tx: Sender<ReaderEvent>) {
+pub fn spawn_reader(source: InputSource, tx: SyncSender<ReaderEvent>) {
     thread::spawn(move || match source {
+        // A pipe or device opened by path (e.g. `track <(cmd)`) can't be truncated or
+        // rotated: read it like stdin, to its end.
+        InputSource::File { file, .. } if is_stream(&file) => {
+            read_stream(BufReader::with_capacity(STREAM_BUFFER, file), tx)
+        }
         InputSource::Stdin => read_stream(
             BufReader::with_capacity(STREAM_BUFFER, io::stdin().lock()),
             tx,
@@ -49,6 +54,37 @@ pub fn spawn_reader(source: InputSource, tx: Sender<ReaderEvent>) {
             follow: true,
         } => follow_file(file, &path, tx),
     });
+}
+
+/// A FIFO, socket or character device rather than a regular file.
+#[cfg(unix)]
+fn is_stream(file: &File) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    file.metadata().is_ok_and(|m| {
+        let t = m.file_type();
+        t.is_fifo() || t.is_socket() || t.is_char_device()
+    })
+}
+
+#[cfg(not(unix))]
+fn is_stream(_file: &File) -> bool {
+    false
+}
+
+/// Drops the overwritten part of an incomplete line. A carriage return (progress bars,
+/// spinners) goes back to the start of the line, so only the text after the last one can
+/// still be shown (see [`bytes_to_line`]); without this, a progress line would keep every
+/// update in memory. A trailing `\r` is kept: it may be the first half of `\r\n`.
+/// Returns true when something was dropped.
+fn collapse_cr(pending: &mut Vec<u8>) -> bool {
+    let end = pending.len() - usize::from(pending.ends_with(b"\r"));
+    match pending[..end].iter().rposition(|&b| b == b'\r') {
+        Some(i) => {
+            pending.drain(..=i);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Convert raw bytes to a line: strip the trailing `\r?\n`, replace invalid UTF-8.
@@ -70,12 +106,12 @@ fn bytes_to_line(mut bytes: &[u8]) -> String {
 
 /// Collects lines and sends them in batches.
 struct Batcher {
-    tx: Sender<ReaderEvent>,
+    tx: SyncSender<ReaderEvent>,
     batch: Vec<String>,
 }
 
 impl Batcher {
-    fn new(tx: Sender<ReaderEvent>) -> Self {
+    fn new(tx: SyncSender<ReaderEvent>) -> Self {
         Self {
             tx,
             batch: Vec::with_capacity(BATCH_SIZE),
@@ -110,7 +146,7 @@ impl Batcher {
 ///
 /// Lines are sent as soon as the writer pauses, and an incomplete last line is sent as a
 /// `Partial` so prompts and progress output show up before their newline arrives.
-fn read_stream<R: Read>(mut reader: BufReader<R>, tx: Sender<ReaderEvent>) {
+fn read_stream<R: Read>(mut reader: BufReader<R>, tx: SyncSender<ReaderEvent>) {
     let mut out = Batcher::new(tx);
     // Bytes of the current incomplete line
     let mut pending = Vec::new();
@@ -150,6 +186,9 @@ fn read_stream<R: Read>(mut reader: BufReader<R>, tx: Sender<ReaderEvent>) {
         }
         pending.extend_from_slice(&chunk[start..]);
         reader.consume(len);
+        if collapse_cr(&mut pending) {
+            partial_sent = 0;
+        }
 
         // Caught up with the writer: deliver everything read so far
         if !out.flush() {
@@ -184,9 +223,12 @@ fn file_id(_meta: &Metadata) -> Option<(u64, u64)> {
 
 /// Follow a file like `tail -F`: keep reading appended data, start over when the file
 /// is truncated, and reopen it when it is replaced (log rotation).
-fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
+fn follow_file(file: File, path: &Path, tx: SyncSender<ReaderEvent>) {
     let mut out = Batcher::new(tx);
     let mut id = file.metadata().ok().as_ref().and_then(file_id);
+    // Size at the last check: a file is only truncated if it really was bigger. Files in
+    // /proc and /sys always report size 0.
+    let mut last_len = file.metadata().map_or(0, |m| m.len());
     let mut reader = BufReader::new(file);
     let mut pos: u64 = 0;
     // Bytes of the current (possibly incomplete) line
@@ -199,6 +241,9 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
             Ok(0) => {
                 if !out.flush() {
                     return;
+                }
+                if collapse_cr(&mut buf) {
+                    partial_sent = 0;
                 }
                 if buf.len() > partial_sent {
                     if !out.send(ReaderEvent::Partial(bytes_to_line(&buf))) {
@@ -213,7 +258,8 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
                     continue;
                 };
                 let replaced = file_id(&meta) != id;
-                let truncated = !replaced && meta.len() < pos;
+                let truncated = !replaced && meta.len() < pos && last_len >= pos;
+                last_len = meta.len();
                 if !replaced && !truncated {
                     continue;
                 }
@@ -227,6 +273,7 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
                         continue;
                     };
                     id = new_file.metadata().ok().as_ref().and_then(file_id);
+                    last_len = new_file.metadata().map_or(0, |m| m.len());
                     reader = BufReader::new(new_file);
                 } else if reader.seek(SeekFrom::Start(0)).is_err() {
                     continue;
@@ -274,7 +321,7 @@ fn follow_file(file: File, path: &Path, tx: Sender<ReaderEvent>) {
 mod tests {
     use super::*;
     use std::io::{Cursor, Write};
-    use std::sync::mpsc::{Receiver, channel};
+    use std::sync::mpsc::{Receiver, sync_channel};
     use std::time::Instant;
 
     fn collect(rx: &Receiver<ReaderEvent>) -> (Vec<String>, bool) {
@@ -292,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_read_stream_batches_and_eof() {
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(1 << 16);
         let data = "line 1\nline 2\r\nline 3\nno newline";
         read_stream(BufReader::new(Cursor::new(data.as_bytes())), tx);
 
@@ -315,7 +362,7 @@ mod tests {
     fn test_stream_sends_complete_lines_before_an_incomplete_one() {
         // The writer prints a line and a prompt, then pauses without a newline
         let (r, mut w) = std::io::pipe().unwrap();
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(1 << 16);
         thread::spawn(move || read_stream(BufReader::new(r), tx));
         w.write_all(b"line before\nwaiting...").unwrap();
 
@@ -343,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_invalid_utf8_does_not_stop_reading() {
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(1 << 16);
         let data: &[u8] = b"ok1\n\xff\xfe bad\nok2\n";
         read_stream(BufReader::new(Cursor::new(data)), tx);
 
@@ -353,6 +400,43 @@ mod tests {
     }
 
     /// Wait for the next event that isn't a (possibly repeated) partial line update.
+    #[test]
+    fn test_collapse_cr_keeps_only_the_visible_text() {
+        let mut v = b"10%\r20%\r".to_vec();
+        assert!(collapse_cr(&mut v));
+        assert_eq!(v, b"20%\r");
+        let mut v = b"abc\r".to_vec();
+        assert!(!collapse_cr(&mut v));
+        let mut v = b"a\rb".to_vec();
+        assert!(collapse_cr(&mut v));
+        assert_eq!(v, b"b");
+    }
+
+    #[test]
+    fn test_progress_line_keeps_updating() {
+        // 20,000 `\r` updates: far more than the partial-line limit if all were kept.
+        let mut data = Vec::new();
+        for i in 1..=20_000 {
+            write!(data, "\rdownloading... {i} / 20000").unwrap();
+        }
+        let (tx, rx) = sync_channel(1 << 16);
+        read_stream(BufReader::with_capacity(4096, Cursor::new(data)), tx);
+        let mut last_partial = None;
+        let mut lines = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                ReaderEvent::Partial(p) => last_partial = Some(p),
+                ReaderEvent::Lines(batch) => lines.extend(batch),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            last_partial.as_deref(),
+            Some("downloading... 20000 / 20000")
+        );
+        assert_eq!(lines, vec!["downloading... 20000 / 20000"]);
+    }
+
     fn next_event(rx: &Receiver<ReaderEvent>, skip_partial: bool) -> ReaderEvent {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -380,7 +464,7 @@ mod tests {
         };
 
         append("one\npart");
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(1 << 16);
         spawn_reader(
             InputSource::File {
                 file: File::open(&path).unwrap(),

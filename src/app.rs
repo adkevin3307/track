@@ -95,7 +95,6 @@ pub struct App {
     pub current_match_idx: Option<usize>,
     /// Scroll position right after the last jump to a match; once the view moves away,
     /// n / N search from the screen instead of from the current match.
-    match_jump_pos: Option<(usize, usize)>,
 
     // Mouse (layout of the last frame, set by the renderer)
     /// Inner area of the log panel, gutter included.
@@ -151,7 +150,6 @@ impl App {
             filtered_indices: Vec::new(),
             search_match_indices: Vec::new(),
             current_match_idx: None,
-            match_jump_pos: None,
 
             log_area: Rect::default(),
             content_area: Rect::default(),
@@ -240,9 +238,13 @@ impl App {
                 self.row_offset = 0;
             }
             self.vertical_offset = self.vertical_offset.saturating_sub(view_drop);
-            self.match_jump_pos = self
-                .match_jump_pos
-                .and_then(|(line, row)| Some((line.checked_sub(view_drop)?, row)));
+            // Where the open search box returns to (esc, or each new character)
+            self.search_origin = self.search_origin.map(|((line, row), following)| {
+                match line.checked_sub(view_drop) {
+                    Some(line) => ((line, row), following),
+                    None => ((0, 0), following),
+                }
+            });
         }
 
         if self.following {
@@ -608,10 +610,7 @@ impl App {
         let top = self.vertical_offset;
         let target = matches.iter().find(|&&v| v >= top).or(matches.first());
         if let Some(&line) = target {
-            // Only move when the match isn't already on screen
-            if line < top || line >= self.bottom_line() {
-                self.jump_to_line(line);
-            }
+            self.reveal_line(line);
         }
     }
 
@@ -651,21 +650,23 @@ impl App {
                 push_history(&mut self.search_history, &query);
                 self.set_search(Matcher::new(&query, false));
             }
-            InputMode::Filter => {
-                push_history(&mut self.filter_history, &query);
-                match Matcher::new(&query, true) {
-                    Some(filter) => {
-                        let mut filters = self.filters.clone();
-                        filters.push(filter);
-                        self.set_filters(filters);
-                    }
-                    None if self.is_filtering() => {
+            InputMode::Filter => match Matcher::new(&query, true) {
+                Some(filter) => {
+                    push_history(&mut self.filter_history, &query);
+                    let mut filters = self.filters.clone();
+                    filters.push(filter);
+                    self.set_filters(filters);
+                }
+                // Enter on an empty box removes all filters
+                None if query.is_empty() => {
+                    if self.is_filtering() {
                         self.set_filters(Vec::new());
                         self.status_message = Some("All filters cleared".to_string());
                     }
-                    None => {}
                 }
-            }
+                // A lone `!` has nothing to hide
+                None => self.status_message = Some("Empty pattern".to_string()),
+            },
             InputMode::Goto => match query.trim().parse::<usize>() {
                 Ok(n) if n > 0 => self.goto_line(n),
                 _ if query.is_empty() => {}
@@ -757,10 +758,22 @@ impl App {
         }
     }
 
-    /// The current match, if the view hasn't moved since jumping to it.
-    fn match_cursor(&self) -> Option<usize> {
-        self.current_match_idx
-            .filter(|_| self.match_jump_pos == Some(self.position()))
+    /// The current match (index into the matches), while its line is on screen: n and N
+    /// continue from it. Once it is scrolled away they start from the screen instead.
+    pub fn match_cursor(&self) -> Option<usize> {
+        let idx = self.current_match_idx?;
+        let line = *self.search_match_indices.get(idx)?;
+        (line >= self.vertical_offset && line < self.bottom_line()).then_some(idx)
+    }
+
+    /// The view line of the current match, highlighted like git-graph's selected commit
+    /// (not while esc has hidden the search highlights).
+    pub fn current_match_line(&self) -> Option<usize> {
+        if self.search_hidden {
+            return None;
+        }
+        self.match_cursor()
+            .map(|idx| self.search_match_indices[idx])
     }
 
     /// n: the match after the current one, or the first one from the top of the screen.
@@ -818,8 +831,7 @@ impl App {
 
     fn jump_to_match(&mut self, idx: usize) {
         self.current_match_idx = Some(idx);
-        self.jump_to_line(self.search_match_indices[idx]);
-        self.match_jump_pos = Some(self.position());
+        self.reveal_line(self.search_match_indices[idx]);
     }
 
     /// Jump to an absolute (1-based) input line number.
@@ -844,6 +856,32 @@ impl App {
             self.status_message = Some(format!("Line {line_number} is hidden by the filter"));
         }
         self.jump_to_line(view.min(self.total_display_lines().saturating_sub(1)));
+    }
+
+    /// Scrolls only as far as needed to show view line `target` with a few lines of
+    /// context, the way git-graph keeps its selected commit in view (search jumps).
+    fn reveal_line(&mut self, target: usize) {
+        self.following = false;
+        let margin = 3.min(self.viewport_height / 4);
+        let (top, top_row) = self.position();
+        let above = target < top || (target == top && top_row > 0);
+        // Screen row of the target's first row, when it starts on screen
+        let first_row = (!above && target < self.bottom_line())
+            .then(|| (top..target).map(|l| self.line_rows(l)).sum::<usize>() - top_row);
+        let rows = self.line_rows(target);
+        let pos = match first_row {
+            Some(r) if r >= margin && r + rows + margin <= self.viewport_height => return,
+            // Close to (or above) the top, or too tall to fit: context above it
+            Some(r) if r < margin => self.retreat((target, 0), margin),
+            None if above => self.retreat((target, 0), margin),
+            _ if rows + 2 * margin > self.viewport_height => self.retreat((target, 0), margin),
+            // Close to (or below) the bottom: context below it
+            _ => self.retreat(
+                (target, rows - 1),
+                self.viewport_height.saturating_sub(margin + 1),
+            ),
+        };
+        self.set_position(pos.min(self.max_position()));
     }
 
     fn jump_to_line(&mut self, line_idx: usize) {
@@ -906,11 +944,7 @@ impl App {
                 if text.is_empty() {
                     return None;
                 }
-                let n = text.chars().count();
-                self.status_message = Some(format!(
-                    "Copied {n} character{} to the clipboard",
-                    if n == 1 { "" } else { "s" }
-                ));
+                // main copies it and shows how that went
                 return Some(text);
             }
             _ => {}

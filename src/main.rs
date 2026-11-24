@@ -1,15 +1,17 @@
 mod ansi;
 mod app;
+mod escapes;
 mod input;
 mod layout;
 mod matcher;
 mod reader;
 mod selection;
+mod signals;
+mod terminal;
 mod ui;
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
-use std::panic;
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
@@ -18,13 +20,9 @@ use clap::CommandFactory;
 use clap::Parser;
 use clap::builder::styling::{AnsiColor, Styles};
 use crossterm::{
-    cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{
-        Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
-    },
+    terminal::{Clear, ClearType},
     tty::IsTty,
 };
 use ratatui::Terminal;
@@ -32,6 +30,7 @@ use ratatui::backend::CrosstermBackend;
 
 use app::{App, InputMode};
 use reader::{InputSource, ReaderEvent, spawn_reader};
+use signals::Signals;
 
 type Tui = Terminal<CrosstermBackend<Box<dyn Write>>>;
 
@@ -39,13 +38,20 @@ type Tui = Terminal<CrosstermBackend<Box<dyn Write>>>;
 const INGEST_BUDGET: Duration = Duration::from_millis(15);
 /// Event poll timeout when idle (~40 FPS worst-case latency for new input).
 const IDLE_POLL: Duration = Duration::from_millis(25);
+/// Event poll timeout while input is backed up. Not zero: crossterm's /dev/tty event
+/// source only reads the terminal when the timeout is above zero, so a zero poll would
+/// never see a key (q included) while a fast producer keeps the backlog full.
+const BUSY_POLL: Duration = Duration::from_millis(1);
+/// Reader batches that may wait to be ingested; when they are all waiting, the reader
+/// (and through the pipe, the producer) waits too, so memory stays bounded.
+const READER_QUEUE: usize = 64;
 
 /// A simple, fast terminal log viewer with horizontal & vertical scrolling
 #[derive(Parser, Debug)]
 #[command(
     name = "track",
     version,
-    about = "Simple, lightweight log viewer.",
+    about = "A log viewer: follow a file or piped input, with search, filters and mouse selection.",
     long_about = None,
     styles = Styles::styled()
         .header(AnsiColor::Yellow.on_default())
@@ -89,8 +95,8 @@ struct Cli {
     #[arg(short = 'f', long, hide = true, conflicts_with = "no_follow")]
     follow: bool,
 
-    /// Don't capture the mouse: plain drag uses the terminal's own selection, and the
-    /// wheel scrolls only where the terminal supports alternate scroll mode
+    /// Don't capture the mouse: drag uses the terminal's own selection, and the wheel
+    /// scrolls only where the terminal supports alternate scroll mode
     #[arg(long)]
     no_mouse: bool,
 
@@ -118,76 +124,6 @@ fn open_terminal_writer() -> Box<dyn Write> {
         Box::new(io::stdout())
     } else {
         Box::new(io::stderr())
-    }
-}
-
-/// Mouse capture: button presses, drags (1002, not every motion) and the wheel, in
-/// SGR encoding (1006). track selects and copies text itself while it is on.
-struct MouseCapture(bool);
-
-impl crossterm::Command for MouseCapture {
-    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        f.write_str(if self.0 {
-            "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
-        } else {
-            "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
-        })
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// Alternate scroll mode (DECSET 1007), used with `--no-mouse`: in the alternate
-/// screen the terminal turns mouse wheel scrolling into Up / Down keys, leaving its
-/// own text selection working. Not every terminal (or tmux) supports it.
-struct AlternateScroll(bool);
-
-impl crossterm::Command for AlternateScroll {
-    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        f.write_str(if self.0 { "\x1b[?1007h" } else { "\x1b[?1007l" })
-    }
-
-    #[cfg(windows)]
-    fn execute_winapi(&self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-fn restore_terminal() {
-    let _ = disable_raw_mode();
-    let mut writer = open_terminal_writer();
-    let _ = execute!(
-        writer,
-        MouseCapture(false),
-        AlternateScroll(false),
-        LeaveAlternateScreen,
-        Show
-    );
-}
-
-/// Puts the terminal into TUI mode and restores it when dropped, on every exit path.
-struct TerminalGuard;
-
-impl TerminalGuard {
-    fn enter(writer: &mut impl Write, mouse: bool) -> io::Result<Self> {
-        enable_raw_mode()?;
-        let guard = TerminalGuard;
-        execute!(writer, EnterAlternateScreen, Hide)?;
-        if mouse {
-            execute!(writer, MouseCapture(true))?;
-        } else {
-            execute!(writer, AlternateScroll(true))?;
-        }
-        Ok(guard)
-    }
-}
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        restore_terminal();
     }
 }
 
@@ -224,15 +160,11 @@ fn main() -> io::Result<()> {
     };
     let is_stdin = matches!(source, InputSource::Stdin);
 
-    // Install panic hook to restore terminal cleanly on panic
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |info| {
-        restore_terminal();
-        default_hook(info);
-    }));
+    // A panic anywhere restores the terminal and ends the program.
+    terminal::on_panic(|| {});
 
     // Spawn background log reader
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(READER_QUEUE);
     spawn_reader(source, tx);
 
     // For stdin, wait until a complete line arrives before taking over the terminal
@@ -263,13 +195,21 @@ fn main() -> io::Result<()> {
         apply_reader_event(&mut app, event);
     }
 
-    // Initialize terminal; the guard restores it however we exit (declared before
-    // the terminal so it is dropped after it)
-    let mut writer = open_terminal_writer();
-    let _guard = TerminalGuard::enter(&mut writer, !args.no_mouse)?;
+    // The guard restores the terminal however we exit; external termination signals
+    // are caught from here on, so they also end through that cleanup.
+    let guard = terminal::enter(open_terminal_writer, !args.no_mouse)?;
+    let signals = Signals::catch(|| {})?;
+    let writer: Box<dyn Write> =
+        Box::new(BufWriter::with_capacity(1 << 16, open_terminal_writer()));
     let mut terminal = Terminal::new(CrosstermBackend::new(writer))?;
 
-    run_app(&mut terminal, &mut app, rx)
+    let result = run_app(&mut terminal, &mut app, rx, &signals);
+    drop(terminal);
+    drop(guard);
+    if let Some(sig) = result? {
+        std::process::exit(signals::exit_status(sig));
+    }
+    Ok(())
 }
 
 fn apply_reader_event(app: &mut App, event: ReaderEvent) {
@@ -308,9 +248,18 @@ fn ingest(app: &mut App, rx: &mpsc::Receiver<ReaderEvent>) -> (bool, bool) {
     }
 }
 
-fn run_app(terminal: &mut Tui, app: &mut App, rx: mpsc::Receiver<ReaderEvent>) -> io::Result<()> {
+/// Returns the signal that ended the program, if one did.
+fn run_app(
+    terminal: &mut Tui,
+    app: &mut App,
+    rx: mpsc::Receiver<ReaderEvent>,
+    signals: &Signals,
+) -> io::Result<Option<i32>> {
     let mut dirty = true;
     loop {
+        if let Some(sig) = signals.received() {
+            return Ok(Some(sig));
+        }
         let (changed, backlog) = ingest(app, &rx);
         dirty |= changed;
 
@@ -320,15 +269,15 @@ fn run_app(terminal: &mut Tui, app: &mut App, rx: mpsc::Receiver<ReaderEvent>) -
             dirty = false;
         }
 
-        let timeout = if backlog { Duration::ZERO } else { IDLE_POLL };
+        let timeout = if backlog { BUSY_POLL } else { IDLE_POLL };
         if event::poll(timeout)? {
             // Handle every queued event before the next draw
             loop {
                 if handle_event(terminal, app, event::read()?)? {
-                    return Ok(());
+                    return Ok(None);
                 }
                 dirty = true;
-                if !event::poll(Duration::ZERO)? {
+                if !event::poll(BUSY_POLL)? {
                     break;
                 }
             }
@@ -343,9 +292,7 @@ fn handle_event(terminal: &mut Tui, app: &mut App, event: Event) -> io::Result<b
         Event::Key(key) if key.kind != KeyEventKind::Release => handle_key(terminal, app, key),
         Event::Mouse(mouse) => {
             if let Some(text) = app.on_mouse(mouse) {
-                let writer = terminal.backend_mut();
-                writer.write_all(selection::osc52(&text).as_bytes())?;
-                writer.flush()?;
+                app.status_message = Some(terminal::copy(terminal.backend_mut(), &text));
             }
             Ok(false)
         }

@@ -1,17 +1,15 @@
 use ansi_to_tui::IntoText;
 use ratatui::text::{Line, Span};
-use regex::Regex;
-use std::sync::LazyLock;
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
+use crate::escapes;
 
 const TAB_SIZE: usize = 4;
 
-static ANSI_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").expect("valid regex"));
-
-/// Strip ANSI escape codes from a string for plain-text searching/filtering.
+/// Strip escape sequences from a string for plain-text searching/filtering.
 pub fn strip_ansi(s: &str) -> String {
-    ANSI_REGEX.replace_all(s, "").to_string()
+    escapes::strip(s).into_owned()
 }
 
 /// Expand tab characters to the next multiple of `tab_size` display columns.
@@ -24,14 +22,14 @@ pub fn expand_tabs(s: &str, tab_size: usize) -> String {
 /// Like `expand_tabs`, but starting at display column `*col` and advancing it.
 fn expand_tabs_from(s: &str, tab_size: usize, col: &mut usize) -> String {
     let mut result = String::with_capacity(s.len() + 16);
-    for ch in s.chars() {
-        if ch == '\t' {
+    for g in s.graphemes(true) {
+        if g == "\t" {
             let spaces = tab_size - (*col % tab_size);
             result.extend(std::iter::repeat_n(' ', spaces));
             *col += spaces;
         } else {
-            result.push(ch);
-            *col += ch.width().unwrap_or(0);
+            result.push_str(g);
+            *col += g.width();
         }
     }
     result
@@ -40,12 +38,14 @@ fn expand_tabs_from(s: &str, tab_size: usize, col: &mut usize) -> String {
 /// Parse a log line into a Ratatui `Line`, preserving ANSI colors if present.
 /// Tabs are expanded after parsing so escape sequences don't affect tab stops.
 pub fn parse_ansi_line(s: &str) -> Line<'static> {
+    // Only colors are drawn; other sequences would break the parse
+    let s = escapes::keep_colors(s);
     let line = if !s.contains('\x1b') {
-        Line::raw(s.to_string())
+        Line::raw(s.into_owned())
     } else {
-        match s.into_text() {
+        match s.as_ref().into_text() {
             Ok(text) => text.lines.into_iter().next().unwrap_or_default(),
-            Err(_) => Line::raw(strip_ansi(s)),
+            Err(_) => Line::raw(strip_ansi(&s)),
         }
     };
 

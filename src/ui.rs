@@ -9,6 +9,9 @@ use ratatui::{
     },
 };
 
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 use crate::app::{App, InputMode};
 use crate::layout::{highlight_line, slice_line, wrap_line};
 use crate::matcher::Matcher;
@@ -22,6 +25,8 @@ const GREEN: Color = Color::Rgb(102, 187, 102);
 const YELLOW: Color = Color::Rgb(204, 178, 85);
 const MAGENTA: Color = Color::Rgb(200, 115, 200);
 const RED: Color = Color::Rgb(217, 106, 106);
+/// The current search match's line, like git-graph's selected commit.
+const SELECTED_BG: Color = Color::Rgb(45, 55, 75);
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -55,43 +60,83 @@ fn panel<'a>(title: impl Into<Line<'a>>, focused: bool) -> Block<'a> {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
-    let mut spans = vec![
-        Span::styled(" track ", Style::new().bg(ACCENT).fg(Color::Black)),
-        Span::raw(" "),
-        Span::raw(app.input_source_name.clone()),
-    ];
+    let mut status = Vec::new();
     if app.eof && app.is_at_bottom() {
-        spans.push(Span::styled("  end of input", Style::new().fg(DIM)));
+        status.push(Span::styled("  end of input", Style::new().fg(DIM)));
     } else if app.following {
-        spans.push(Span::styled("  following", Style::new().fg(GREEN)));
+        status.push(Span::styled("  following", Style::new().fg(GREEN)));
     } else {
-        spans.push(Span::styled("  paused", Style::new().fg(YELLOW)));
+        status.push(Span::styled("  paused", Style::new().fg(YELLOW)));
         let below = app.lines_below();
         if below > 0 {
-            spans.push(Span::styled(
+            status.push(Span::styled(
                 format!(" · {below} below"),
                 Style::new().fg(DIM),
             ));
         }
     }
     if app.wrap {
-        spans.push(Span::styled("  wrap", Style::new().fg(DIM)));
+        status.push(Span::styled("  wrap", Style::new().fg(DIM)));
     }
-
-    // Like monitor's host and git-graph's commit count: the input size on the right
-    let position = match app.lines.len() + app.dropped_lines {
+    // Like monitor's host and clock and git-graph's commit position: the input size
+    let right = match app.lines.len() + app.dropped_lines {
         1 => "1 line ".to_string(),
         n => format!("{n} lines "),
     };
+    let line = header("track", &app.input_source_name, status, right, area.width);
+    f.render_widget(line, area);
+}
+
+/// The header line, the same in track, monitor and git-graph: the tool's name, then
+/// `source` (cut short with "…" when space runs out), then `status`, and `right` at the
+/// right edge when everything fits.
+fn header(
+    name: &str,
+    source: &str,
+    status: Vec<Span<'static>>,
+    right: String,
+    width: u16,
+) -> Line<'static> {
+    let width = width as usize;
+    let badge = format!(" {name} ");
+    let fixed = badge.width() + 1 + status.iter().map(Span::width).sum::<usize>();
+    let mut spans = vec![
+        Span::styled(badge, Style::new().bg(ACCENT).fg(Color::Black)),
+        Span::raw(" "),
+        Span::raw(fit(source, width.saturating_sub(fixed))),
+    ];
+    spans.extend(status);
     let used: usize = spans.iter().map(Span::width).sum();
-    let width = area.width as usize;
-    if used + position.chars().count() < width {
-        spans.push(Span::raw(
-            " ".repeat(width - used - position.chars().count()),
-        ));
-        spans.push(Span::styled(position, Style::new().fg(DIM)));
+    let right_width = right.width();
+    if used + 1 + right_width <= width {
+        spans.push(Span::raw(" ".repeat(width - used - right_width)));
+        spans.push(Span::styled(right, Style::new().fg(DIM)));
     }
-    f.render_widget(Line::from(spans), area);
+    Line::from(spans)
+}
+
+/// `text` cut to at most `width` display columns, ending in "…" when it was cut. Widths
+/// are measured per grapheme cluster, the way ratatui draws them. The same in track,
+/// monitor and git-graph.
+fn fit(text: &str, width: usize) -> String {
+    let total: usize = text.graphemes(true).map(UnicodeWidthStr::width).sum();
+    if total <= width {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for g in text.graphemes(true) {
+        let w = g.width();
+        if used + w + 1 > width {
+            break;
+        }
+        out.push_str(g);
+        used += w;
+    }
+    if width > 0 {
+        out.push('…');
+    }
+    out
 }
 
 /// Panel titles: filters and horizontal position on the left, the search on the right.
@@ -121,7 +166,7 @@ fn log_titles(app: &App) -> (Line<'static>, Option<Line<'static>>) {
     left.push(Span::raw(" "));
 
     let right = app.search.as_ref().map(|search| {
-        let count = match (app.search_match_indices.len(), app.current_match_idx) {
+        let count = match (app.search_match_indices.len(), app.match_cursor()) {
             (0, _) => "no matches".to_string(),
             (n, Some(i)) => format!("{}/{n}", i + 1),
             (1, None) => "1 match".to_string(),
@@ -222,10 +267,7 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
     app.resolve_drag();
 
     if let Some((g_area, digits)) = gutter_area {
-        let current_match_line = app
-            .current_match_idx
-            .and_then(|idx| app.search_match_indices.get(idx))
-            .copied();
+        let current_match_line = app.current_match_line();
         let gutter_lines: Vec<Line> = rows
             .iter()
             .map(|row| {
@@ -248,6 +290,18 @@ fn draw_log(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(gutter_lines), g_area);
     }
 
+    // The current search match's rows, across the whole width like git-graph's selected
+    // commit; painted first, so the text (and match highlights) go on top
+    let current_match = app.current_match_line();
+    for (i, row) in rows.iter().enumerate() {
+        if Some(row.view_index) == current_match {
+            let y = content_area.y + i as u16;
+            f.buffer_mut().set_style(
+                Rect::new(content_area.x, y, content_area.width, 1),
+                Style::new().bg(SELECTED_BG),
+            );
+        }
+    }
     let content: Vec<Line> = rows
         .into_iter()
         .map(|row| {
@@ -332,13 +386,20 @@ fn layout_rows(app: &App, highlight: Option<&Matcher>, height: usize) -> Vec<Row
 
 /// Footer key hints, the same in track, monitor and git-graph: movement, search,
 /// the tool's own keys, then `? help` and `q quit` last. When the line is too
-/// narrow, the tool's own keys are dropped from the end first, so help and quit
-/// always stay visible.
+/// narrow, the tool's own keys are dropped from the end first, so help and quit stay
+/// visible as long as they fit.
 fn footer_hints(keys: &[(&str, &str)], width: u16) -> Line<'static> {
     let hint_width = |(k, v): &(&str, &str)| Line::raw(*k).width() + Line::raw(*v).width() + 3;
+    // A leading space and two between hints: no trailing spaces needed
+    let needed =
+        |keys: &[(&str, &str)]| keys.iter().map(hint_width).sum::<usize>().saturating_sub(1);
     let mut keys = keys.to_vec();
-    while keys.len() > 2 && 1 + keys.iter().map(hint_width).sum::<usize>() > width as usize {
+    while keys.len() > 2 && needed(&keys) > width as usize {
         keys.remove(keys.len() - 3);
+    }
+    // Too narrow even for help and quit: quit alone, then nothing (never half a hint)
+    while !keys.is_empty() && needed(&keys) > width as usize {
+        keys.remove(0);
     }
     let mut spans = vec![Span::raw(" ")];
     for (k, v) in keys {
@@ -524,7 +585,7 @@ const HELP_ROWS: &[(&str, &str)] = &[
     (":", "go to line number"),
     ("Search & filter", ""),
     ("/", "search (regex, smart case)"),
-    ("n / N", "next / previous match"),
+    ("n/N", "next / previous match"),
     ("&", "add a filter: show only matching lines"),
     ("& !pattern", "add a filter: hide matching lines"),
     ("& enter (empty)", "remove all filters"),

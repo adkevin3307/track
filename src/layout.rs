@@ -5,16 +5,13 @@ use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::matcher::Matcher;
 
 fn highlight_style() -> Style {
     Style::default().bg(Color::Yellow).fg(Color::Black)
-}
-
-fn char_width(ch: char) -> usize {
-    ch.width().unwrap_or(0)
 }
 
 /// Highlight every match of `matcher` in `line`, preserving the existing span styles.
@@ -71,13 +68,15 @@ pub fn slice_line(line: &Line<'static>, skip: usize, width: usize) -> Line<'stat
             break;
         }
         let mut buf = String::new();
-        for ch in span.content.chars() {
+        // Grapheme clusters, measured the way ratatui draws them (an emoji with its
+        // variation selector is one 2-column cell, not 1 + 0)
+        for g in span.content.graphemes(true) {
             if col >= end {
                 break;
             }
-            let w = char_width(ch);
+            let w = g.width();
             if col >= skip && col + w <= end {
-                buf.push(ch);
+                buf.push_str(g);
             } else if col < skip && col + w > skip {
                 buf.extend(std::iter::repeat_n(' ', (col + w).min(end) - skip));
             }
@@ -99,8 +98,8 @@ pub fn wrap_line(line: &Line<'static>, width: usize) -> Vec<Line<'static>> {
     let mut col = 0;
     for span in &line.spans {
         let mut buf = String::new();
-        for ch in span.content.chars() {
-            let w = char_width(ch);
+        for g in span.content.graphemes(true) {
+            let w = g.width();
             if col > 0 && col + w > width {
                 if !buf.is_empty() {
                     row.push(Span::styled(std::mem::take(&mut buf), span.style));
@@ -108,7 +107,7 @@ pub fn wrap_line(line: &Line<'static>, width: usize) -> Vec<Line<'static>> {
                 rows.push(Line::from(std::mem::take(&mut row)).style(line.style));
                 col = 0;
             }
-            buf.push(ch);
+            buf.push_str(g);
             col += w;
         }
         if !buf.is_empty() {
@@ -124,8 +123,8 @@ pub fn wrapped_row_count(line: &Line<'static>, width: usize) -> usize {
     let width = width.max(1);
     let mut rows = 1;
     let mut col = 0;
-    for ch in line.spans.iter().flat_map(|s| s.content.chars()) {
-        let w = char_width(ch);
+    for g in line.spans.iter().flat_map(|s| s.content.graphemes(true)) {
+        let w = g.width();
         if col > 0 && col + w > width {
             rows += 1;
             col = 0;
@@ -190,6 +189,20 @@ mod tests {
         assert_eq!(text(&slice_line(&line, 0, 5)), "ab日");
         assert_eq!(text(&slice_line(&line, 100, 4)), "");
         assert_eq!(text(&slice_line(&line, usize::MAX, 4)), "");
+    }
+
+    #[test]
+    fn test_widths_follow_grapheme_clusters() {
+        // U+26A0 U+FE0F: one 2-column cell for ratatui, though its chars add up to 1
+        let line = Line::raw(format!("{}\u{26a0}\u{fe0f} END", "x".repeat(13)));
+        let rows = wrap_line(&line, 18);
+        assert_eq!(
+            text(&rows[0]),
+            format!("{}\u{26a0}\u{fe0f} EN", "x".repeat(13))
+        );
+        assert_eq!(text(&rows[1]), "D");
+        assert_eq!(wrapped_row_count(&line, 18), 2);
+        assert_eq!(text(&slice_line(&line, 13, 3)), "\u{26a0}\u{fe0f} ");
     }
 
     #[test]

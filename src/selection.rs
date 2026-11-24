@@ -4,7 +4,8 @@ use ratatui::{
     style::{Color, Modifier},
     text::{Line, Span},
 };
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 const SELECTION_BG: Color = Color::Rgb(70, 90, 130);
 
@@ -72,17 +73,18 @@ fn overlaps(col: usize, w: usize, from: usize, to: usize) -> bool {
     col < to && col + w.max(1) > from
 }
 
-/// The characters of `text` within display columns `[from, to)`.
+/// The characters of `text` within display columns `[from, to)`, measured per grapheme
+/// cluster the way ratatui draws them.
 pub fn slice_columns(text: &str, from: usize, to: usize) -> String {
     let mut out = String::new();
     let mut col = 0;
-    for c in text.chars() {
+    for g in text.graphemes(true) {
         if col >= to {
             break;
         }
-        let w = c.width().unwrap_or(0);
+        let w = g.width();
         if overlaps(col, w, from, to) {
-            out.push(c);
+            out.push_str(g);
         }
         col += w;
     }
@@ -99,14 +101,14 @@ pub fn highlight_columns(line: Line<'static>, from: usize, to: usize) -> Line<'s
     for span in &line.spans {
         let mut buf = String::new();
         let mut buf_selected = false;
-        for c in span.content.chars() {
-            let w = c.width().unwrap_or(0);
+        for g in span.content.graphemes(true) {
+            let w = g.width();
             let inside = overlaps(col, w, from, to);
             if inside != buf_selected && !buf.is_empty() {
                 spans.push(styled(std::mem::take(&mut buf), span, buf_selected));
             }
             buf_selected = inside;
-            buf.push(c);
+            buf.push_str(g);
             col += w;
         }
         if !buf.is_empty() {
@@ -127,33 +129,6 @@ fn styled(text: String, span: &Span<'static>, selected: bool) -> Span<'static> {
         span.style
     };
     Span::styled(text, style)
-}
-
-/// The OSC 52 sequence that puts `text` on the system clipboard (supported by most
-/// modern terminals, and by tmux with `set-clipboard on`).
-pub fn osc52(text: &str) -> String {
-    format!("\x1b]52;c;{}\x07", base64(text.as_bytes()))
-}
-
-fn base64(data: &[u8]) -> String {
-    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
-        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -211,14 +186,5 @@ mod tests {
                 .add_modifier
                 .contains(Modifier::REVERSED)
         );
-    }
-
-    #[test]
-    fn test_base64_encoding() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64("héllo\n".as_bytes()), "aMOpbGxvCg==");
     }
 }
