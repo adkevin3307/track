@@ -883,7 +883,7 @@ impl App {
                 }
                 let n = text.chars().count();
                 self.status_message = Some(format!(
-                    "copied {n} character{} to the clipboard",
+                    "Copied {n} character{} to the clipboard",
                     if n == 1 { "" } else { "s" }
                 ));
                 return Some(text);
