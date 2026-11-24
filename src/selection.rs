@@ -1,7 +1,7 @@
 //! Mouse text selection: positions, highlighting and copying to the clipboard.
 
 use ratatui::{
-    style::Color,
+    style::{Color, Modifier},
     text::{Line, Span},
 };
 use unicode_width::UnicodeWidthChar;
@@ -107,7 +107,13 @@ pub fn highlight_columns(line: Line<'static>, from: usize, to: usize) -> Line<'s
 }
 
 fn styled(text: String, span: &Span<'static>, selected: bool) -> Span<'static> {
-    let style = if selected { span.style.bg(SELECTION_BG) } else { span.style };
+    // Reverse video is dropped, or it would swap the selection background into the
+    // text color (log lines can use it, e.g. `less`-style highlights)
+    let style = if selected {
+        span.style.remove_modifier(Modifier::REVERSED).bg(SELECTION_BG)
+    } else {
+        span.style
+    };
     Span::styled(text, style)
 }
 
@@ -171,6 +177,14 @@ mod tests {
         assert_eq!(text, vec!["he", "llo w", "orld"]);
         assert_eq!(line.spans[1].style.bg, Some(SELECTION_BG));
         assert_eq!(line.spans[0].style.bg, None);
+    }
+
+    #[test]
+    fn test_highlight_columns_drops_reverse_video() {
+        let reversed = Line::from(Span::styled("abc", ratatui::style::Style::new().reversed()));
+        let line = highlight_columns(reversed, 0, 1);
+        assert!(line.spans[0].style.sub_modifier.contains(Modifier::REVERSED));
+        assert!(line.spans[1].style.add_modifier.contains(Modifier::REVERSED));
     }
 
     #[test]
