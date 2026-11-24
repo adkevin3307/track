@@ -285,6 +285,9 @@ fn handle_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bo
     app.status_message = None;
 
     if app.show_help {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Ok(true);
+        }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => app.show_help = false,
             KeyCode::Up | KeyCode::Char('k') => app.help_scroll = app.help_scroll.saturating_sub(1),
@@ -306,12 +309,28 @@ fn handle_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bo
 }
 
 fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Result<bool> {
-    match (key.modifiers, key.code) {
-        (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Char('q')) => {
-            return Ok(true);
+    // Ctrl or Alt + character: only the explicit bindings, never the plain key's action.
+    // (Ctrl+Alt together is AltGr on some platforms, which types ordinary characters.)
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    if let KeyCode::Char(c) = key.code
+        && ctrl != alt
+    {
+        if ctrl {
+            match c {
+                'c' => return Ok(true),
+                'l' => terminal.clear()?,
+                'u' => app.scroll_page_up(),
+                'd' => app.scroll_page_down(),
+                _ => {}
+            }
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
-            terminal.clear()?;
+        return Ok(false);
+    }
+
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Char('q')) => {
+            return Ok(true);
         }
         // Follow mode toggle
         (_, KeyCode::Char('f')) | (_, KeyCode::Char('F')) => {
@@ -413,14 +432,10 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => {
             app.scroll_down(1);
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('u'))
-        | (_, KeyCode::PageUp)
-        | (_, KeyCode::Char('b')) => {
+        (_, KeyCode::PageUp) | (_, KeyCode::Char('b')) => {
             app.scroll_page_up();
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('d'))
-        | (_, KeyCode::PageDown)
-        | (_, KeyCode::Char(' ')) => {
+        (_, KeyCode::PageDown) | (_, KeyCode::Char(' ')) => {
             app.scroll_page_down();
         }
         _ => {}
