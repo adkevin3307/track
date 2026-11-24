@@ -14,9 +14,9 @@
 - **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`).
 - **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view. Measured in display columns, so tabs, CJK and emoji line up.
 - **Follow Mode (like `tail -F`)**: Files and pipes are followed by default (`FOLLOWING`). Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or pressing `f`/`G` resumes. Truncated and rotated log files are detected and reopened, and an incomplete last line is shown as it is being written.
-- **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines. The newest line always stays visible while following.
+- **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines. In wrap mode scrolling moves by screen rows, so even a line taller than the screen can be read in full. The newest line always stays visible while following.
 - **ANSI Color Support**: Preserves the original colors output by Docker containers and CLI applications while using the terminal's default colors for UI elements.
-- **Search & Highlighting**: Press `/` to search with a regular expression (smart case: case-insensitive unless the pattern has an uppercase letter; invalid regexes are matched literally). Matches are highlighted live while typing; jump through them with `n` / `N`.
+- **Search & Highlighting**: Press `/` to search with a regular expression (smart case: case-insensitive unless the pattern has an uppercase letter; invalid regexes are matched literally). Matches are highlighted live while typing; jump through them with `n` / `N` (after scrolling away, they continue from the screen rather than the last match). Matching uses the text as displayed: colors stripped, tabs expanded.
 - **Stackable Filters**: Press `&` to show only matching lines, `&` again to narrow further, and `&!pattern` to hide noise. `Esc` removes the most recent one.
 - **Line Numbers**: Press `#` to toggle line numbers. They stay absolute (input line numbers) even after old lines are dropped from the buffer, and stay pinned on the left when scrolling horizontally. Press `:` to jump to a line number.
 - **Text Selection Friendly**: The mouse is not captured by default, so you can select and copy text. Use `-m` or press `m` to enable mouse wheel scrolling.
@@ -95,8 +95,8 @@ track < my-file
 | `Ctrl+Right` / `L` / `]` | Scroll right 20 columns |
 | `Home` / `^` | Jump to column 0 (beginning of line) |
 | `End` / `$` | Jump to the end of the longest visible line |
-| `Up` / `k` | Scroll up 1 line (pauses follow mode) |
-| `Down` / `j` | Scroll down 1 line |
+| `Up` / `k` | Scroll up 1 line (1 screen row in wrap mode; pauses follow mode) |
+| `Down` / `j` | Scroll down 1 line (1 screen row in wrap mode) |
 | `Ctrl+Up` / `Ctrl+Down` | Scroll up / down 5 lines |
 | `PageUp` / `Ctrl+U` / `b` | Scroll up 1 page |
 | `PageDown` / `Ctrl+D` / `Space` | Scroll down 1 page |
@@ -119,8 +119,8 @@ track < my-file
 | Key | Action |
 | --- | --- |
 | `/` | Search (regex, smart case; highlighted live while typing) |
-| `n` | Jump to next search match |
-| `N` | Jump to previous search match |
+| `n` | Jump to next search match (from the top of the screen after scrolling) |
+| `N` | Jump to previous search match (from the bottom of the screen after scrolling) |
 | `&` | Add a filter (show only matching lines; filters stack) |
 | `&` then `!pattern` | Add an exclude filter (hide matching lines) |
 | `&` then `Enter` (empty) | Clear all filters |
