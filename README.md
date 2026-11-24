@@ -1,182 +1,213 @@
 # track
 
-> A simple, blazing fast terminal log viewer with horizontal scrolling, follow mode, and pipe support.
+A simple, fast terminal log viewer: as frictionless as `tail -f`, but you can
+scroll sideways through long lines, search, filter and jump around without
+any configuration.
 
-*Developed by Antigravity (Google DeepMind).*
-*Reviewed, fixed and extended by Claude Code (Anthropic).*
+> **About this README and this code.** The first version of `track` was
+> written by Antigravity, an AI assistant made by Google DeepMind. It was then
+> reviewed, fixed and extended in Claude Code by Claude, an AI model made by
+> Anthropic, working from the repository owner's requests and feedback. The
+> owner decided what to build and how it should look and behave; the AI
+> assistants implemented it, checked it, and committed each change.
 
-`track` is designed to be as simple and frictionless as `tail`, but with the ability to scroll horizontally (left/right), search, filter, and inspect long log lines without clutter or complicated configuration. It preserves standard terminal ANSI colors emitted by Docker and CLI tools.
+```
+ TRACK  [app.log] FOLLOWING [Filter: !health (8 lines)] [Search: error (1/2 matches)]
+  1 │ 2026-11-24 10:00:01 INFO  api     server listening on 0.0.0.0:8080
+  2 │ 2026-11-24 10:00:02 INFO  db      connected to postgres://db:5432/app (pool=16)
+  4 │ 2026-11-24 10:00:07 WARN  worker  job 4812 retrying (attempt 2/5): upstream timeout after 30s
+  5 │ 2026-11-24 10:00:09 INFO  api     POST /orders 201 18ms user=1042 items=3 total=59.90
+  6 │ 2026-11-24 10:00:11 ERROR worker  job 4812 failed: connection reset by peer (upstream=payments
+  7 │ 2026-11-24 10:00:12 INFO  api     GET /orders/88 200 4ms
+  8 │ 2026-11-24 10:00:15 WARN  db      slow query 1.2s: SELECT * FROM orders WHERE status = 'pendin
+ 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443
 
----
+ q:quit ?:help /:search &:filter f:follow w:wrap #:numbers ::goto m:mouse h/j/k/l:move
+```
+
+*(`track -N app.log` with the filter `&!health` and the search `/error`.)*
 
 ## Features
 
-- **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`). Lines appear as soon as they are written; an unfinished line (a prompt, a progress bar redrawn with `\r`) is shown live and updated in place.
-- **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view. Measured in display columns, so tabs, CJK and emoji line up.
-- **Follow Mode (like `tail -F`)**: Files and pipes are followed by default (`FOLLOWING`). Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or pressing `f`/`G` resumes. Truncated and rotated log files are detected and reopened, and an incomplete last line is shown as it is being written.
-- **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines. In wrap mode scrolling moves by screen rows, so even a line taller than the screen can be read in full. The newest line always stays visible while following.
-- **ANSI Color Support**: Preserves the original colors output by Docker containers and CLI applications while using the terminal's default colors for UI elements.
-- **Search & Highlighting**: Press `/` to search with a regular expression (smart case: case-insensitive unless the pattern has an uppercase letter; invalid regexes are matched literally). Matches are highlighted live while typing; jump through them with `n` / `N` (after scrolling away, they continue from the screen rather than the last match). Matching uses the text as displayed: colors stripped, tabs expanded.
-- **Stackable Filters**: Press `&` to show only matching lines, `&` again to narrow further, and `&!pattern` to hide noise. `Esc` removes the most recent one.
-- **Line Numbers**: Press `#` to toggle line numbers. They stay absolute (input line numbers) even after old lines are dropped from the buffer, and stay pinned on the left when scrolling horizontally. Press `:` to jump to a line number.
-- **Text Selection Friendly**: The mouse is not captured by default, so you can select and copy text. Use `-m` or press `m` to enable mouse wheel scrolling.
-- **Robust Input**: Invalid UTF-8 bytes are shown as `�` instead of stopping the reader.
-- **High Performance**: Background streaming reader, incremental filter/search matching, and redraws only when something changes.
+- **Pipes, files and redirects.** `cmd | track`, `cmd 2>&1 | track`,
+  `track file` or `track < file`. Lines appear as soon as they are written;
+  an unfinished line (a prompt, or a progress bar redrawn with `\r`) is shown
+  live and updated in place. See [Piping](#piping).
+- **Follow mode, like `tail -F`.** Files and pipes are followed by default.
+  Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or
+  pressing `f`/`G` resumes. Truncated and rotated log files are detected and
+  reopened.
+- **Horizontal scrolling** through wide lines, measured in display columns
+  so tabs, CJK and emoji line up.
+- **Soft wrap** with `w`. Scrolling then moves by screen rows, so even a line
+  taller than the screen can be read in full.
+- **ANSI colors preserved** from Docker and other CLI tools; the UI itself
+  uses the terminal's default colors and background.
+- **Regex search** with smart case (case-insensitive unless the pattern has an
+  uppercase letter); invalid regexes are matched literally. Matches are
+  highlighted live while typing; `n`/`N` step through them, continuing from
+  the screen after you scroll away.
+- **Stackable filters.** `&` shows only matching lines, `&` again narrows
+  further, and `&!pattern` hides noise. `esc` removes the most recent one.
+  Search and filters match the text as displayed (colors stripped, tabs
+  expanded).
+- **Line numbers** with `#`. They stay absolute (input line numbers) even
+  after old lines are dropped from the buffer, and stay pinned on the left
+  when scrolling sideways. `:` jumps to a line number.
+- **Text selection friendly.** The mouse is not captured by default, so you
+  can select and copy text; `-m` or `m` enables wheel scrolling.
+- **Robust and light.** Invalid UTF-8 is shown as `�` instead of stopping the
+  reader; input is read on a background thread, filters and searches are
+  matched incrementally, and the screen is redrawn only when something
+  changes. At most 100,000 lines are kept in memory by default.
 
----
-
-## Installation & Building
+## Install
 
 Requires Rust 1.88 or newer.
 
-### Build
-To compile an optimized, standalone executable:
-
-```bash
-cargo build --release
-```
-
-The compiled binary will be located at:
-```bash
-./target/release/track
-```
-
-### Install
-To install `track` into your Cargo bin path (`~/.cargo/bin/track`):
-
-```bash
+```sh
 cargo install --path .
 ```
 
-Or copy the release binary to any directory on your `PATH`, e.g. `~/.local/bin`:
+This installs a `track` binary into `~/.cargo/bin`.
 
-```bash
-install -Dm755 target/release/track ~/.local/bin/track
+### Build an executable only
+
+```sh
+cargo build --release
 ```
 
----
+The binary is written to `target/release/track` (about 2.5 MB). Run it
+directly, or copy it anywhere on your `PATH`:
 
-## Usage Examples
-
-### Piped Commands
-```bash
-# Pipe any command output (stdout) into track
-my-command | track
-
-# Pipe both stdout and stderr into track
-my-command 2>&1 | track
+```sh
+./target/release/track /var/log/syslog
+cp target/release/track ~/.local/bin/
 ```
 
-Without `2>&1`, the command's stderr is not piped: it is written straight onto the
-terminal and may draw over `track`'s screen (press `Ctrl+L` to redraw).
+## Usage
 
-`track` starts once the first complete line arrives, so a command can still ask for a
-password or other input in the terminal before that. After quitting `track`, the shell
-returns when the piped command exits or writes again (as with `less`); press `Ctrl+C`
-to stop a command that is waiting quietly.
-
-### Direct File or Shell Redirection
-```bash
-# View a log file directly
-track my-file
-
-# Read a file once, starting at the top (don't follow)
-track --no-follow my-file
-
-# Keep at most 10,000 lines in memory, wrap long lines, show line numbers
-track -b 10000 -w -N my-file
-
-# Shell input redirection
-track < my-file
+```
+track [OPTIONS] [FILE]
 ```
 
----
+`FILE` is the file to view; without it, `track` reads from stdin.
 
-## Keybindings
+| Option | Description |
+|---|---|
+| `-b, --buffer-lines <LINES>` | Maximum lines kept in memory; the oldest lines are dropped (default: 100000) |
+| `-w, --wrap` | Start with line wrapping enabled |
+| `-N, --line-numbers` | Start with line numbers displayed |
+| `--no-follow` | Read the input once instead of following it, and start at the top |
+| `-m, --mouse` | Capture the mouse for wheel scrolling (disables terminal text selection; toggle with `m`) |
+| `-h, --help` | Print help |
+| `-V, --version` | Print version |
 
-### Navigation
+The old spellings still work: `--max-lines`, `-l` / `--numbers`, and
+`-f` / `--follow` (following is now the default).
+
+```sh
+track app.log                    # view and follow a file
+track --no-follow app.log        # read it once, starting at the top
+track -b 10000 -w -N app.log     # keep 10,000 lines, wrap, show line numbers
+track < app.log                  # shell redirection
+my-command | track               # stdout only
+my-command 2>&1 | track          # stdout and stderr
+```
+
+### Piping
+
+- **Use `2>&1` to see stderr.** Without it, the command's stderr bypasses the
+  pipe and is written straight onto the terminal, drawing over `track`'s
+  screen (`ctrl-l` redraws).
+- **`track` starts at the first complete line**, so the command can still ask
+  for a password or other input in the terminal before that.
+- **After quitting**, the shell returns once the piped command exits or writes
+  again, as with `less`; press `ctrl-c` to stop a command that is waiting
+  quietly.
+- **Late or out-of-order stdout** is usually the command buffering its output
+  because it is writing to a pipe. `stdbuf -oL my-command 2>&1 | track`, or
+  `PYTHONUNBUFFERED=1` for Python, makes it line-buffered.
+
+## Layout
+
+```
+ TRACK  [source] FOLLOWING  [Wrap:OFF] [#]  [Filter: …] [Search: …]   Col: 0 │ 1-40 of 812 (5%)
+  1 │ log lines, scrolled sideways or wrapped
+  2 │ (line numbers in the gutter with #)
+  …
+ key hints, the search / filter / go-to prompt, or a status message
+```
+
+The header shows the input, the follow state (`FOLLOWING`, `PAUSED`,
+`[EOF]`), the display flags, the active filters and search, and the position.
+On narrow terminals the flags and then the position are dropped first.
+
+## Keys
+
+Press `?` in the app for this list (`j`/`k` scroll it if it doesn't fit;
+`esc`, `q` or `?` close it).
+
+**Navigation**
+
 | Key | Action |
-| --- | --- |
-| `Left` / `h` | Scroll left 4 columns |
-| `Right` / `l` | Scroll right 4 columns |
-| `Ctrl+Left` / `H` / `[` | Scroll left 20 columns |
-| `Ctrl+Right` / `L` / `]` | Scroll right 20 columns |
-| `Home` / `^` | Jump to column 0 (beginning of line) |
-| `End` / `$` | Jump to the end of the longest visible line |
-| `Up` / `k` | Scroll up 1 line (1 screen row in wrap mode; pauses follow mode) |
-| `Down` / `j` | Scroll down 1 line (1 screen row in wrap mode) |
-| `Ctrl+Up` / `Ctrl+Down` | Scroll up / down 5 lines |
-| `PageUp` / `Ctrl+U` / `b` | Scroll up 1 page |
-| `PageDown` / `Ctrl+D` / `Space` | Scroll down 1 page |
-| `g` / `Ctrl+Home` | Jump to top (first line) |
-| `G` / `Ctrl+End` | Jump to bottom & resume follow mode |
+|---|---|
+| `j`/`k`, `↓`/`↑` | Scroll one line (one screen row in wrap mode); scrolling up pauses follow |
+| `ctrl-↓`/`ctrl-↑` | Scroll five lines |
+| `ctrl-d`/`ctrl-u`, `PgDn`/`PgUp`, `space`/`b` | Scroll one page |
+| `g` / `G`, `ctrl-home` / `ctrl-end` | Top / bottom (bottom resumes follow) |
 | `:` | Go to line number |
-| `Mouse Wheel` | Scroll up / down when mouse capture is on (hold `Ctrl` to scroll faster) |
+| `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
+| `H`/`L`, `[`/`]`, `ctrl-←`/`ctrl-→` | Scroll sideways 20 columns |
+| `^` / `$`, `home` / `end` | Line start / end of the longest visible line |
+| mouse wheel | Scroll when mouse capture is on (hold `ctrl` to scroll faster) |
 
-### Modes & Display
-| Key | Action |
-| --- | --- |
-| `f` / `F` | Toggle Follow mode (`FOLLOWING` ↔ `PAUSED`) |
-| `w` | Toggle soft line wrapping (`Wrap: ON` ↔ `Wrap: OFF`) |
-| `#` | Toggle line numbers |
-| `m` | Toggle mouse capture (wheel scrolling ↔ native text selection) |
-| `Ctrl+L` | Redraw the screen |
-| `?` | Show / hide Help overlay (scroll with `j` / `k`) |
+**Search & filter**
 
-### Search & Filtering
 | Key | Action |
-| --- | --- |
+|---|---|
 | `/` | Search (regex, smart case; highlighted live while typing) |
-| `n` | Jump to next search match (from the top of the screen after scrolling) |
-| `N` | Jump to previous search match (from the bottom of the screen after scrolling) |
-| `&` | Add a filter (show only matching lines; filters stack) |
-| `&` then `!pattern` | Add an exclude filter (hide matching lines) |
-| `&` then `Enter` (empty) | Clear all filters |
-| `Esc` | Clear the search first, then remove the most recent filter |
+| `n` / `N` | Next / previous match (from the screen after scrolling away) |
+| `&` | Add a filter: show only matching lines (filters stack) |
+| `&` then `!pattern` | Add an exclude filter: hide matching lines |
+| `&` then `enter` (empty) | Clear all filters |
+| `esc` | Clear the search first, then remove the most recent filter |
 
-### Prompt Editing (in `/`, `&` and `:` prompts)
+**Prompt editing** (in the `/`, `&` and `:` prompts)
+
 | Key | Action |
-| --- | --- |
-| `Left` / `Right`, `Home` / `End`, `Ctrl+A` / `Ctrl+E` | Move the cursor |
-| `Ctrl+U` / `Ctrl+W` | Delete to start of line / delete previous word |
-| `Up` / `Down` | Browse search / filter history |
-| `Enter` / `Esc` | Submit / cancel (`Backspace` on an empty prompt also cancels) |
+|---|---|
+| `←`/`→`, `home`/`end`, `ctrl-a`/`ctrl-e` | Move the cursor |
+| `ctrl-u` / `ctrl-w` | Delete to start of line / previous word |
+| `↑`/`↓` | Browse search / filter history |
+| `enter` / `esc` | Submit / cancel (`backspace` on an empty prompt also cancels) |
 
-### General
+**Display & general**
+
 | Key | Action |
-| --- | --- |
-| `q` / `Ctrl+C` | Quit `track` cleanly |
+|---|---|
+| `f` / `F` | Toggle follow mode (`FOLLOWING` ↔ `PAUSED`) |
+| `w` | Toggle soft wrap |
+| `#` | Toggle line numbers |
+| `m` | Toggle mouse capture (wheel scrolling ↔ terminal text selection) |
+| `ctrl-l` | Redraw the screen |
+| `?` | Help |
+| `q`, `ctrl-c` | Quit |
 
----
+## Development
 
-## Command-Line Options
-
-```
-Usage: track [OPTIONS] [FILE]
-
-Arguments:
-  [FILE]  File to view (reads from stdin if not provided)
-
-Options:
-  -b, --buffer-lines <LINES>  Maximum lines kept in memory; the oldest lines are dropped [default: 100000]
-  -w, --wrap                  Start with line wrapping enabled
-  -N, --line-numbers          Start with line numbers displayed
-      --no-follow             Read the input once instead of following it, and start at the top
-  -m, --mouse                 Capture the mouse for wheel scrolling (disables terminal text selection; toggle with `m`)
-  -h, --help                  Print help
-  -V, --version               Print version
+```sh
+cargo test     # reader, scrolling, search/filter, layout and editor tests
+cargo clippy
 ```
 
-The old spellings still work: `--max-lines`, `-l` / `--numbers`, and `-f` / `--follow` (following is now the default).
-
----
-
-## Credits
-
-Developed by **Antigravity**, an AI assistant created by Google DeepMind.
-
-Reviewed, fixed and extended by **Claude Code**, an AI coding assistant created by Anthropic:
-bug fixes (search highlight crash, invalid UTF-8 handling, absolute line numbers, wrap-mode
-following, log rotation), smart-case search, stackable/exclude filters, prompt editing & history,
-go-to-line, opt-in mouse capture, and on-demand redraws.
-
+| File | Contents |
+|---|---|
+| `src/reader.rs` | Background reader: stdin and files, partial lines, follow with truncation and rotation |
+| `src/app.rs` | Application state: line buffer, scrolling, filters, search and match navigation |
+| `src/matcher.rs` | Search / filter patterns: smart-case regex, literal fallback, `!` exclusion |
+| `src/layout.rs` | Highlighting, horizontal slicing and wrapping by display width |
+| `src/ansi.rs` | ANSI color parsing and tab expansion |
+| `src/input.rs` | Prompt line editor and history |
+| `src/ui.rs` | Rendering with ratatui |
+| `src/main.rs` | Command-line options, terminal setup and the event loop |
