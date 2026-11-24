@@ -2,6 +2,7 @@
 name = "track"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 
 [dependencies]
 ansi-to-tui = "8.0.1"
@@ -10,3 +11,8 @@ crossterm = { version = "0.29.0", features = ["use-dev-tty"] }
 ratatui = "0.30.2"
 regex = "1.13.1"
 unicode-width = "0.2.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

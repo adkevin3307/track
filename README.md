@@ -27,7 +27,7 @@
 
 ## Installation & Building
 
-Requires a Rust toolchain with edition 2024 support (Rust 1.85+).
+Requires Rust 1.88 or newer.
 
 ### Build
 To compile an optimized, standalone executable:
