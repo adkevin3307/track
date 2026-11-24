@@ -6,13 +6,17 @@ use std::thread;
 use std::time::Duration;
 
 const BATCH_SIZE: usize = 512;
+/// Read buffer for stdin / non-followed input.
+const STREAM_BUFFER: usize = 64 * 1024;
+/// Longest incomplete line that is shown before it completes (avoids resending huge lines).
+const MAX_PARTIAL: usize = 64 * 1024;
 const FOLLOW_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, PartialEq)]
 pub enum ReaderEvent {
     /// Complete lines. If a `Partial` line was sent before, the first line completes it.
     Lines(Vec<String>),
-    /// The incomplete last line of a followed file (replaces any previous partial line).
+    /// The incomplete last line so far (replaces any previous partial line).
     Partial(String),
     /// Something the user should know about (e.g. the file was truncated).
     Notice(String),
@@ -30,16 +34,26 @@ pub enum InputSource {
 
 pub fn spawn_reader(source: InputSource, tx: Sender<ReaderEvent>) {
     thread::spawn(move || match source {
-        InputSource::Stdin => read_stream(BufReader::new(io::stdin().lock()), tx),
-        InputSource::File { file, follow: false, .. } => read_stream(BufReader::new(file), tx),
+        InputSource::Stdin => {
+            read_stream(BufReader::with_capacity(STREAM_BUFFER, io::stdin().lock()), tx)
+        }
+        InputSource::File { file, follow: false, .. } => {
+            read_stream(BufReader::with_capacity(STREAM_BUFFER, file), tx)
+        }
         InputSource::File { file, path, follow: true } => follow_file(file, &path, tx),
     });
 }
 
 /// Convert raw bytes to a line: strip the trailing `\r?\n`, replace invalid UTF-8.
+///
+/// A carriage return inside the line (progress bars, spinners) returns to the start of
+/// the line on a terminal, so only the text after the last one is kept.
 fn bytes_to_line(mut bytes: &[u8]) -> String {
     if let Some(rest) = bytes.strip_suffix(b"\n") {
         bytes = rest.strip_suffix(b"\r").unwrap_or(rest);
+    }
+    if bytes.contains(&b'\r') {
+        bytes = bytes.rsplit(|&b| b == b'\r').find(|seg| !seg.is_empty()).unwrap_or_default();
     }
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -83,26 +97,64 @@ impl Batcher {
 }
 
 /// Read until EOF (stdin, or a file that isn't followed).
+///
+/// Lines are sent as soon as the writer pauses, and an incomplete last line is sent as a
+/// `Partial` so prompts and progress output show up before their newline arrives.
 fn read_stream<R: Read>(mut reader: BufReader<R>, tx: Sender<ReaderEvent>) {
     let mut out = Batcher::new(tx);
-    let mut buf = Vec::new();
+    // Bytes of the current incomplete line
+    let mut pending = Vec::new();
+    // Length of `pending` when it was last sent as a partial line
+    let mut partial_sent = 0;
     loop {
-        buf.clear();
-        match reader.read_until(b'\n', &mut buf) {
-            // A final line without a trailing newline is still a line
-            Ok(0) => break,
-            Ok(_) => {
-                if !out.push(&buf, &reader) {
-                    return;
-                }
-            }
+        let chunk = match reader.fill_buf() {
+            Ok([]) => break,
+            Ok(chunk) => chunk,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => {
+                if !pending.is_empty() {
+                    out.batch.push(bytes_to_line(&pending));
+                    pending.clear();
+                }
                 out.flush();
                 out.send(ReaderEvent::Notice(format!("Read error: {e}")));
                 break;
             }
+        };
+        let len = chunk.len();
+        let mut start = 0;
+        while let Some(i) = chunk[start..].iter().position(|&b| b == b'\n') {
+            let end = start + i + 1;
+            if pending.is_empty() {
+                out.batch.push(bytes_to_line(&chunk[start..end]));
+            } else {
+                pending.extend_from_slice(&chunk[start..end]);
+                out.batch.push(bytes_to_line(&pending));
+                pending.clear();
+            }
+            partial_sent = 0;
+            start = end;
+            if out.batch.len() >= BATCH_SIZE && !out.flush() {
+                return;
+            }
         }
+        pending.extend_from_slice(&chunk[start..]);
+        reader.consume(len);
+
+        // Caught up with the writer: deliver everything read so far
+        if !out.flush() {
+            return;
+        }
+        if pending.len() > partial_sent && pending.len() <= MAX_PARTIAL {
+            if !out.send(ReaderEvent::Partial(bytes_to_line(&pending))) {
+                return;
+            }
+            partial_sent = pending.len();
+        }
+    }
+    // A final line without a trailing newline is still a line
+    if !pending.is_empty() {
+        out.batch.push(bytes_to_line(&pending));
     }
     if out.flush() {
         out.send(ReaderEvent::Eof);
@@ -233,6 +285,31 @@ mod tests {
         let (all_lines, got_eof) = collect(&rx);
         assert_eq!(all_lines, vec!["line 1", "line 2", "line 3", "no newline"]);
         assert!(got_eof);
+    }
+
+    #[test]
+    fn test_carriage_returns_keep_the_last_text() {
+        assert_eq!(bytes_to_line(b"\rprogress 10%\rprogress 100%\n"), "progress 100%");
+        assert_eq!(bytes_to_line(b"done\r\r\n"), "done");
+        assert_eq!(bytes_to_line(b"windows line\r\n"), "windows line");
+    }
+
+    #[test]
+    fn test_stream_sends_complete_lines_before_an_incomplete_one() {
+        // The writer prints a line and a prompt, then pauses without a newline
+        let (r, mut w) = std::io::pipe().unwrap();
+        let (tx, rx) = channel();
+        thread::spawn(move || read_stream(BufReader::new(r), tx));
+        w.write_all(b"line before\nwaiting...").unwrap();
+
+        assert_eq!(next_event(&rx, false), ReaderEvent::Lines(vec!["line before".into()]));
+        assert_eq!(next_event(&rx, false), ReaderEvent::Partial("waiting...".into()));
+
+        w.write_all(b" done\nlast").unwrap();
+        drop(w);
+        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["waiting... done".into()]));
+        assert_eq!(next_event(&rx, true), ReaderEvent::Lines(vec!["last".into()]));
+        assert_eq!(next_event(&rx, true), ReaderEvent::Eof);
     }
 
     #[test]

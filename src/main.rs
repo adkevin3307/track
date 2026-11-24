@@ -171,19 +171,26 @@ fn main() -> io::Result<()> {
     let (tx, rx) = mpsc::channel();
     spawn_reader(source, tx);
 
-    // For stdin, wait until output arrives before taking over the terminal
-    // (this lets the user type e.g. a sudo password in the original terminal)
-    let mut first_event = None;
+    // For stdin, wait until a complete line arrives before taking over the terminal
+    // (this lets the user answer e.g. a sudo password or other prompt in the terminal)
+    let mut first_events = Vec::new();
     if is_stdin {
-        match rx.recv() {
-            Ok(ReaderEvent::Eof) | Err(_) => return Ok(()),
-            Ok(event) => first_event = Some(event),
+        loop {
+            match rx.recv() {
+                Ok(ReaderEvent::Eof) | Err(_) => return Ok(()),
+                // Keep only the latest incomplete line
+                Ok(event @ ReaderEvent::Partial(_)) => first_events = vec![event],
+                Ok(event) => {
+                    first_events.push(event);
+                    break;
+                }
+            }
         }
     }
 
     let mut app = App::new(source_name, args.buffer_lines, args.wrap, args.show_numbers, follow);
     app.mouse_capture = args.mouse;
-    if let Some(event) = first_event {
+    for event in first_events {
         apply_reader_event(&mut app, event);
     }
 

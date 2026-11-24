@@ -11,7 +11,7 @@
 
 ## Features
 
-- **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`).
+- **Piped & Streaming Input**: Pipe directly from command output, or shell redirects (`<`). Lines appear as soon as they are written; an unfinished line (a prompt, a progress bar redrawn with `\r`) is shown live and updated in place.
 - **Horizontal Scrolling**: Scroll left/right with Arrow keys or `h`/`l` to read wide log entries without line wraps truncating the view. Measured in display columns, so tabs, CJK and emoji line up.
 - **Follow Mode (like `tail -F`)**: Files and pipes are followed by default (`FOLLOWING`). Scrolling up pauses (`PAUSED (+N below)`); scrolling back to the bottom or pressing `f`/`G` resumes. Truncated and rotated log files are detected and reopened, and an incomplete last line is shown as it is being written.
 - **Soft Wrap Toggle**: Press `w` to toggle between horizontal scrolling and wrapped lines. In wrap mode scrolling moves by screen rows, so even a line taller than the screen can be read in full. The newest line always stays visible while following.
@@ -66,6 +66,14 @@ my-command | track
 # Pipe both stdout and stderr into track
 my-command 2>&1 | track
 ```
+
+Without `2>&1`, the command's stderr is not piped: it is written straight onto the
+terminal and may draw over `track`'s screen (press `Ctrl+L` to redraw).
+
+`track` starts once the first complete line arrives, so a command can still ask for a
+password or other input in the terminal before that. After quitting `track`, the shell
+returns when the piped command exits or writes again (as with `less`); press `Ctrl+C`
+to stop a command that is waiting quietly.
 
 ### Direct File or Shell Redirection
 ```bash
