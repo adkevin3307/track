@@ -167,8 +167,8 @@ other key closes it).
 | `g` / `G`, `ctrl-home` / `ctrl-end` | Top / bottom (bottom resumes follow) |
 | `:` | Go to line number |
 | `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
-| `H`/`L`, `[`/`]`, `ctrl-←`/`ctrl-→` | Scroll sideways 20 columns |
-| `^` / `$`, `home` / `end` | Line start / end of the longest visible line |
+| `H`/`L` | Scroll sideways half a page |
+| `home` / `end` | Line start / end of the longest visible line |
 | mouse wheel | Scroll (hold `ctrl` to scroll faster) |
 | mouse drag | Select text; it's copied to the clipboard when you release |
 | shift + drag | Your terminal's own text selection |
@@ -203,6 +203,32 @@ other key closes it).
 | `ctrl-l` | Redraw the screen |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |
+
+### Shared key guideline
+
+`track`, `monitor` and `git-graph` follow one key guideline, so the same
+keys do the same thing in all three:
+
+| Key | Meaning |
+|---|---|
+| `j`/`k`, `↓`/`↑` | One line down / up |
+| `ctrl-d`/`ctrl-u` | Half a page down / up |
+| `PgDn`/`PgUp`, `ctrl-f`/`ctrl-b` | A full page down / up |
+| `g` / `G` | Top / bottom |
+| `h`/`l` | Sideways 4 columns |
+| `H`/`L` | Sideways half a page |
+| `home` / `end` | Line start / end (not top / bottom) |
+| `/`, `n` / `N` | Search, next / previous match |
+| `esc` | Clear the search, or go back |
+| `?` | Help (any key closes it; `j`/`k` scroll it when it doesn't fit) |
+| `q`, `ctrl-c` | Quit |
+| mouse wheel | Scroll |
+| mouse drag | Select text and copy it with OSC 52 on release |
+| shift + drag | The terminal's own selection |
+
+Other keys are specific to one tool. Where a view doesn't scroll sideways,
+`h`/`l`/`H`/`L` may do something else there (in `git-graph`'s commit list
+they move between panes and jump to HEAD).
 
 ## Copying text
 

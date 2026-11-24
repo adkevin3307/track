@@ -429,17 +429,11 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         }
 
         // Horizontal scrolling (Left / Right / Home / End)
-        (m, KeyCode::Left) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_left(20);
+        (_, KeyCode::Char('H')) => {
+            app.scroll_left((app.viewport_width / 2).max(1));
         }
-        (_, KeyCode::Char('H')) | (_, KeyCode::Char('[')) => {
-            app.scroll_left(20);
-        }
-        (m, KeyCode::Right) if m.contains(KeyModifiers::CONTROL) => {
-            app.scroll_right(20);
-        }
-        (_, KeyCode::Char('L')) | (_, KeyCode::Char(']')) => {
-            app.scroll_right(20);
+        (_, KeyCode::Char('L')) => {
+            app.scroll_right((app.viewport_width / 2).max(1));
         }
         (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {
             app.scroll_left(4);
@@ -447,10 +441,10 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         (_, KeyCode::Right) | (_, KeyCode::Char('l')) => {
             app.scroll_right(4);
         }
-        (_, KeyCode::Home) | (_, KeyCode::Char('^')) => {
+        (_, KeyCode::Home) => {
             app.scroll_to_col_zero();
         }
-        (_, KeyCode::End) | (_, KeyCode::Char('$')) => {
+        (_, KeyCode::End) => {
             app.scroll_to_line_end();
         }
 
