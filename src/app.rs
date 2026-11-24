@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use ratatui::text::Line;
 
-use crate::ansi::{parse_ansi_line, strip_ansi};
+use crate::ansi::parse_ansi_line;
 use crate::input::{LineEditor, push_history};
 use crate::layout::wrapped_row_count;
 use crate::matcher::Matcher;
@@ -9,13 +9,16 @@ use crate::matcher::Matcher;
 #[derive(Debug, Clone)]
 pub struct LogLine {
     pub raw: String,
+    /// The text as displayed (ANSI codes removed, tabs expanded) when it differs from `raw`.
+    /// Search and filters match against this, so match counts agree with the highlights.
     pub clean: Option<String>,
 }
 
 impl LogLine {
     pub fn new(raw: String) -> Self {
-        let clean = if raw.contains('\x1b') {
-            Some(strip_ansi(&raw))
+        let clean = if raw.contains(['\x1b', '\t']) {
+            let line = parse_ansi_line(&raw);
+            Some(line.spans.iter().map(|s| s.content.as_ref()).collect())
         } else {
             None
         };
@@ -857,6 +860,16 @@ mod tests {
         assert_eq!(view_texts(&app), vec!["err a", "y", "err b"]);
         assert_eq!(app.search_match_indices, vec![0, 2]);
         assert_eq!(app.current_match_idx, None);
+    }
+
+    #[test]
+    fn test_matching_uses_displayed_text() {
+        // Tabs are expanded and ANSI codes removed, as on screen
+        let mut app = app_with(&["a\tb", "\x1b[31mred\x1b[0m alert"]);
+        submit(&mut app, InputMode::Search, "a   b");
+        assert_eq!(app.search_match_indices, vec![0]);
+        submit(&mut app, InputMode::Search, "red alert");
+        assert_eq!(app.search_match_indices, vec![1]);
     }
 
     #[test]
