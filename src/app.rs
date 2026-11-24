@@ -451,7 +451,9 @@ impl App {
     }
 
     pub fn submit_input(&mut self) {
-        let query = self.editor.text().trim().to_string();
+        // Spaces are significant in patterns; an all-blank pattern counts as empty
+        let text = self.editor.text();
+        let query = if text.trim().is_empty() { String::new() } else { text.to_string() };
         let mode = self.input_mode;
         self.input_mode = InputMode::Normal;
         self.editor.clear();
@@ -476,10 +478,10 @@ impl App {
                     None => {}
                 }
             }
-            InputMode::Goto => match query.parse::<usize>() {
+            InputMode::Goto => match query.trim().parse::<usize>() {
                 Ok(n) if n > 0 => self.goto_line(n),
                 _ if query.is_empty() => {}
-                _ => self.status_message = Some(format!("Invalid line number: {query}")),
+                _ => self.status_message = Some(format!("Invalid line number: {}", query.trim())),
             },
             InputMode::Normal => {}
         }
@@ -855,6 +857,18 @@ mod tests {
         assert_eq!(view_texts(&app), vec!["err a", "y", "err b"]);
         assert_eq!(app.search_match_indices, vec![0, 2]);
         assert_eq!(app.current_match_idx, None);
+    }
+
+    #[test]
+    fn test_spaces_in_patterns_are_kept() {
+        let mut app = app_with(&["code 500 err", "size 1500", "x"]);
+        submit(&mut app, InputMode::Search, " 500 ");
+        assert_eq!(app.search_match_indices, vec![0]);
+
+        submit(&mut app, InputMode::Filter, "   ");
+        assert!(app.filters.is_empty());
+        submit(&mut app, InputMode::Goto, " 2 ");
+        assert!(app.status_message.is_none());
     }
 
     #[test]
