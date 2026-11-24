@@ -19,8 +19,7 @@ use clap::Parser;
 use crossterm::{
     cursor::{Hide, Show},
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyModifiers, MouseEventKind,
+        self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -76,8 +75,8 @@ struct Cli {
     #[arg(short = 'f', long, hide = true, conflicts_with = "no_follow")]
     follow: bool,
 
-    /// Capture the mouse for wheel scrolling (disables terminal text selection; toggle with `m`)
-    #[arg(short = 'm', long, default_value_t = false)]
+    /// Ignored: the mouse wheel always scrolls now (kept for compatibility)
+    #[arg(short = 'm', long, hide = true)]
     mouse: bool,
 }
 
@@ -100,23 +99,36 @@ fn open_terminal_writer() -> Box<dyn Write> {
     }
 }
 
+/// Alternate scroll mode (DECSET 1007): in the alternate screen the terminal turns
+/// mouse wheel scrolling into Up / Down keys. Unlike mouse capture, this leaves the
+/// terminal's own click-and-drag text selection working.
+struct AlternateScroll(bool);
+
+impl crossterm::Command for AlternateScroll {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        f.write_str(if self.0 { "\x1b[?1007h" } else { "\x1b[?1007l" })
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let mut writer = open_terminal_writer();
-    let _ = execute!(writer, DisableMouseCapture, LeaveAlternateScreen, Show);
+    let _ = execute!(writer, AlternateScroll(false), LeaveAlternateScreen, Show);
 }
 
 /// Puts the terminal into TUI mode and restores it when dropped, on every exit path.
 struct TerminalGuard;
 
 impl TerminalGuard {
-    fn enter(writer: &mut impl Write, mouse: bool) -> io::Result<Self> {
+    fn enter(writer: &mut impl Write) -> io::Result<Self> {
         enable_raw_mode()?;
         let guard = TerminalGuard;
-        execute!(writer, EnterAlternateScreen, Hide)?;
-        if mouse {
-            execute!(writer, EnableMouseCapture)?;
-        }
+        execute!(writer, EnterAlternateScreen, AlternateScroll(true), Hide)?;
         Ok(guard)
     }
 }
@@ -189,7 +201,6 @@ fn main() -> io::Result<()> {
     }
 
     let mut app = App::new(source_name, args.buffer_lines, args.wrap, args.show_numbers, follow);
-    app.mouse_capture = args.mouse;
     for event in first_events {
         apply_reader_event(&mut app, event);
     }
@@ -197,7 +208,7 @@ fn main() -> io::Result<()> {
     // Initialize terminal; the guard restores it however we exit (declared before
     // the terminal so it is dropped after it)
     let mut writer = open_terminal_writer();
-    let _guard = TerminalGuard::enter(&mut writer, args.mouse)?;
+    let _guard = TerminalGuard::enter(&mut writer)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(writer))?;
 
     run_app(&mut terminal, &mut app, rx)
@@ -272,17 +283,6 @@ fn handle_event(terminal: &mut Tui, app: &mut App, event: Event) -> io::Result<b
     match event {
         // Ignore key releases (reported on Windows and with keyboard enhancements)
         Event::Key(key) if key.kind != KeyEventKind::Release => handle_key(terminal, app, key),
-        Event::Mouse(mouse) => {
-            let fast = mouse.modifiers.contains(KeyModifiers::CONTROL);
-            match mouse.kind {
-                MouseEventKind::ScrollUp => app.scroll_up(if fast { 15 } else { 3 }),
-                MouseEventKind::ScrollDown => app.scroll_down(if fast { 15 } else { 3 }),
-                MouseEventKind::ScrollLeft => app.scroll_left(if fast { 20 } else { 4 }),
-                MouseEventKind::ScrollRight => app.scroll_right(if fast { 20 } else { 4 }),
-                _ => {}
-            }
-            Ok(false)
-        }
         // Resize is handled on the next draw
         _ => Ok(false),
     }
@@ -352,17 +352,6 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
         // Line numbers toggle
         (_, KeyCode::Char('#')) => {
             app.toggle_line_numbers();
-        }
-        // Mouse capture toggle
-        (_, KeyCode::Char('m')) => {
-            app.mouse_capture = !app.mouse_capture;
-            if app.mouse_capture {
-                execute!(terminal.backend_mut(), EnableMouseCapture)?;
-                app.status_message = Some("Mouse capture ON: wheel scrolls (text selection disabled)".to_string());
-            } else {
-                execute!(terminal.backend_mut(), DisableMouseCapture)?;
-                app.status_message = Some("Mouse capture OFF: text selection enabled".to_string());
-            }
         }
         // Help toggle
         (_, KeyCode::Char('?')) => {

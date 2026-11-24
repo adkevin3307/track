@@ -65,12 +65,8 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(format!(" · {below} below"), Style::new().fg(DIM)));
         }
     }
-    let flags: Vec<&str> = [(app.wrap, "wrap"), (app.mouse_capture, "mouse")]
-        .into_iter()
-        .filter_map(|(on, name)| on.then_some(name))
-        .collect();
-    if !flags.is_empty() {
-        spans.push(Span::styled(format!("  {}", flags.join(" · ")), Style::new().fg(DIM)));
+    if app.wrap {
+        spans.push(Span::styled("  wrap", Style::new().fg(DIM)));
     }
 
     let total = app.total_display_lines();
@@ -304,7 +300,6 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                         ("w", "wrap"),
                         ("#", "numbers"),
                         (":", "line"),
-                        ("m", "mouse"),
                     ]));
                     Line::from(spans)
                 }
@@ -355,6 +350,7 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("PgDn/PgUp, ctrl-f/b", "full page (also space / b)"),
     ("g/G", "top / bottom (bottom resumes following)"),
     (":", "go to line number"),
+    ("mouse wheel", "scroll (click and drag still selects text)"),
     ("h/l ←/→", "scroll sideways 4 columns"),
     ("H/L [/] ctrl-←/→", "scroll sideways 20 columns"),
     ("^/$ home/end", "line start / end of the longest visible line"),
@@ -374,7 +370,6 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("f", "toggle following"),
     ("w", "toggle soft wrap"),
     ("#", "toggle line numbers"),
-    ("m", "toggle mouse capture (wheel scrolling vs text selection)"),
     ("ctrl-l", "redraw the screen"),
     ("General", ""),
     ("q, ctrl-c", "quit"),

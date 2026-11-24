@@ -24,7 +24,7 @@ any configuration.
 │ 10 │ 2026-11-24 10:00:18 ERROR api     POST /checkout 502 30012ms upstream=payments:443          │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- q quit  ? help  / search  & filter  n/N next/prev  f follow  w wrap  # numbers  : line  m mouse
+ q quit  ? help  / search  & filter  n/N next/prev  f follow  w wrap  # numbers  : line
 ```
 
 *(`track -N app.log` with the filter `&!health` and the search `/error`.)*
@@ -56,8 +56,9 @@ any configuration.
 - **Line numbers** with `#`. They stay absolute (input line numbers) even
   after old lines are dropped from the buffer, and stay pinned on the left
   when scrolling sideways. `:` jumps to a line number.
-- **Text selection friendly.** The mouse is not captured by default, so you
-  can select and copy text; `-m` or `m` enables wheel scrolling.
+- **Mouse wheel scrolling and text selection, both always on.** The wheel
+  scrolls without `track` capturing the mouse, so clicking and dragging
+  still selects and copies text as usual.
 - **Robust and light.** Invalid UTF-8 is shown as `�` instead of stopping the
   reader; input is read on a background thread, filters and searches are
   matched incrementally, and the screen is redrawn only when something
@@ -101,12 +102,12 @@ track [OPTIONS] [FILE]
 | `-w, --wrap` | Start with line wrapping enabled |
 | `-N, --line-numbers` | Start with line numbers displayed |
 | `--no-follow` | Read the input once instead of following it, and start at the top |
-| `-m, --mouse` | Capture the mouse for wheel scrolling (disables terminal text selection; toggle with `m`) |
 | `-h, --help` | Print help |
 | `-V, --version` | Print version |
 
 The old spellings still work: `--max-lines`, `-l` / `--numbers`, and
-`-f` / `--follow` (following is now the default).
+`-f` / `--follow` (following is now the default). `-m` / `--mouse` is accepted
+and ignored, since the wheel always scrolls.
 
 ```sh
 track app.log                    # view and follow a file
@@ -134,7 +135,7 @@ my-command 2>&1 | track          # stdout and stderr
 ## Layout
 
 ```
- track  source  following · wrap · mouse                              1-40/812 · 5%
+ track  source  following  wrap                                      1-40/812 · 5%
 ╭ Log  filter: … & …  N of M lines  ← col C ──────────────────── /search  1/12 ╮
 │  1 │ log lines, scrolled sideways or wrapped                                  │
 │  2 │ (line numbers in the gutter with #)                                      │
@@ -143,7 +144,7 @@ my-command 2>&1 | track          # stdout and stderr
 ```
 
 The header shows the input, the follow state (`following`, `paused · N below`
-or `end of input`), the wrap and mouse flags, and the visible range. The log
+or `end of input`), whether wrapping is on, and the visible range. The log
 panel's title shows the active filters and how many lines they keep, the
 column when scrolled sideways, and, on the right, the search and the current
 match.
@@ -166,7 +167,7 @@ other key closes it).
 | `h`/`l`, `←`/`→` | Scroll sideways 4 columns |
 | `H`/`L`, `[`/`]`, `ctrl-←`/`ctrl-→` | Scroll sideways 20 columns |
 | `^` / `$`, `home` / `end` | Line start / end of the longest visible line |
-| mouse wheel | Scroll when mouse capture is on (hold `ctrl` to scroll faster) |
+| mouse wheel | Scroll (click and drag still selects text) |
 
 **Search & filter**
 
@@ -195,7 +196,6 @@ other key closes it).
 | `f` / `F` | Toggle follow mode (`following` ↔ `paused`) |
 | `w` | Toggle soft wrap |
 | `#` | Toggle line numbers |
-| `m` | Toggle mouse capture (wheel scrolling ↔ terminal text selection) |
 | `ctrl-l` | Redraw the screen |
 | `?` | Help |
 | `q`, `ctrl-c` | Quit |

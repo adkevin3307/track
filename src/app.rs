@@ -68,7 +68,6 @@ pub struct App {
     pub show_line_numbers: bool,
     pub show_help: bool,
     pub help_scroll: usize,
-    pub mouse_capture: bool,
     pub eof: bool,
     pub input_source_name: String,
     /// One-shot message shown in the footer until the next key press.
@@ -117,7 +116,6 @@ impl App {
             show_line_numbers: show_numbers,
             show_help: false,
             help_scroll: 0,
-            mouse_capture: false,
             eof: false,
             input_source_name,
             status_message: None,
