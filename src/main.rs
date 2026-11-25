@@ -21,18 +21,15 @@ use clap::Parser;
 use clap::builder::styling::{AnsiColor, Styles};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    execute,
-    terminal::{Clear, ClearType},
     tty::IsTty,
 };
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::Backend;
 
 use app::{App, InputMode};
 use reader::{InputSource, ReaderEvent, spawn_reader};
 use signals::Signals;
 
-type Tui = Terminal<CrosstermBackend<Box<dyn Write>>>;
+type Tui = terminal::Tui<Box<dyn Write>>;
 
 /// How long one frame may spend ingesting input before redrawing.
 const INGEST_BUDGET: Duration = Duration::from_millis(15);
@@ -201,7 +198,7 @@ fn main() -> io::Result<()> {
     let signals = Signals::catch(|| {})?;
     let writer: Box<dyn Write> =
         Box::new(BufWriter::with_capacity(1 << 16, open_terminal_writer()));
-    let mut terminal = Terminal::new(CrosstermBackend::new(writer))?;
+    let mut terminal = terminal::tui(writer)?;
 
     let result = run_app(&mut terminal, &mut app, rx, &signals);
     drop(terminal);
@@ -441,7 +438,8 @@ fn handle_normal_key(terminal: &mut Tui, app: &mut App, key: KeyEvent) -> io::Re
 /// Unlike `Terminal::clear`, this doesn't ask the terminal for the cursor position
 /// (`\e[6n`), so a terminal that doesn't answer can't make it fail.
 fn refresh_screen(terminal: &mut Tui) -> io::Result<()> {
-    execute!(terminal.backend_mut(), Clear(ClearType::All))?;
+    // Through the backend, so it also forgets what the screen showed
+    Backend::clear(terminal.backend_mut())?;
     // An empty frame first, so the next frame repaints every cell.
     terminal.draw(|_| {})?;
     Ok(())

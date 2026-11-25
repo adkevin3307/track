@@ -311,6 +311,9 @@ All three draw the same frame:
 - However the tool ends (`q`, `ctrl-c`, a termination signal from outside
   such as `kill` or closing the terminal or tmux pane, or a crash), the
   terminal is restored: normal screen, cursor, keyboard and mouse.
+- Double-width characters (Chinese, Japanese, Korean) stay whole, including
+  under the edge of a popup and in terminals that don't blank the other half
+  of a half-overwritten one, such as Neovim's terminal (toggleterm.nvim).
 
 ## Copying text
 
